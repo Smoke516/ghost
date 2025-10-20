@@ -2,7 +2,7 @@
 
 A modern, cross-platform SSH connection manager with a beautiful terminal UI, security assessment, and multi-terminal support.
 
-![GitHub Release](https://img.shields.io/github/v/release/yourusername/ghost?style=flat-square)
+![GitHub Release](https://img.shields.io/github/v/release/smoke516/ghost?style=flat-square)
 ![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
@@ -46,12 +46,12 @@ A modern, cross-platform SSH connection manager with a beautiful terminal UI, se
 
 #### Linux & macOS
 ```bash
-curl -sSL https://raw.githubusercontent.com/yourusername/ghost/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/smoke516/ghost/main/install.sh | bash
 ```
 
 #### Windows (PowerShell)
 ```powershell
-iwr -useb https://raw.githubusercontent.com/yourusername/ghost/main/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/smoke516/ghost/main/install.ps1 | iex
 ```
 
 ### Manual Installation
@@ -63,13 +63,13 @@ cargo install ghost
 
 #### From Source
 ```bash
-git clone https://github.com/yourusername/ghost.git
+git clone https://github.com/smoke516/ghost.git
 cd ghost
 cargo install --path .
 ```
 
 #### Binary Releases
-Download pre-compiled binaries from the [Releases](https://github.com/yourusername/ghost/releases) page:
+Download pre-compiled binaries from the [Releases](https://github.com/smoke516/ghost/releases) page:
 - **Linux**: `ghost-linux-x64.tar.gz`
 - **macOS**: `ghost-macos-x64.tar.gz` 
 - **Windows**: `ghost-windows-x64.zip`
