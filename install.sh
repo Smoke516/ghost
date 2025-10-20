@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-REPO="yourusername/ghost"
+REPO="Smoke516/ghost"
 BINARY_NAME="ghost"
 INSTALL_DIR="$HOME/.local/bin"
 
@@ -46,6 +46,9 @@ detect_platform() {
             ;;
         darwin*)
             OS="macos"
+            warn "macOS binaries are not yet available in releases"
+            warn "Please build from source: cargo install --git https://github.com/$REPO"
+            exit 1
             ;;
         *)
             error "Unsupported operating system: $os"
@@ -76,16 +79,24 @@ command_exists() {
 get_latest_version() {
     log "Fetching latest release information..."
     
+    local api_response
     if command_exists curl; then
-        VERSION=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+        api_response=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
     elif command_exists wget; then
-        VERSION=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+        api_response=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest")
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
     
-    if [ -z "$VERSION" ]; then
-        error "Could not determine latest version"
+    # Try jq first (more reliable), then fall back to sed
+    if command_exists jq; then
+        VERSION=$(echo "$api_response" | jq -r '.tag_name')
+    else
+        VERSION=$(echo "$api_response" | grep '"tag_name"' | head -n1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+    fi
+    
+    if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+        error "Could not determine latest version. API response: $(echo "$api_response" | head -c 200)"
     fi
     
     log "Latest version: $VERSION"
