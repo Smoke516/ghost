@@ -6,7 +6,7 @@ param(
 )
 
 # Configuration
-$REPO = "smoke516/ghost"
+$REPO = "username/ghost"
 $BINARY_NAME = "ghost.exe"
 
 # Set error action preference
