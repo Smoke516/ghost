@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-REPO="yourusername/ghost"
+REPO="smoke516/ghost"
 BINARY_NAME="ghost"
 INSTALL_DIR="$HOME/.local/bin"
 
