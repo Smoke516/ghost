@@ -1,0 +1,15 @@
+# Add this to your Ghostty config file (~/.config/ghostty/config)
+# to suppress the OSC command warnings:
+
+# Reduce log level to hide info/warning messages
+log-level = error
+
+# Or alternatively, you can disable specific OSC sequences:
+# osc-color-report-format = none
+
+# Ghostty config file location:
+# ~/.config/ghostty/config
+
+# To create the config:
+# mkdir -p ~/.config/ghostty
+# echo "log-level = error" > ~/.config/ghostty/config

@@ -1,0 +1,55 @@
+[settings]
+theme = "tokyo-night"
+refresh_interval = 30
+show_only_online = false
+animation_speed = 1.0
+
+[servers.production_web]
+name = "Production Web Server"
+host = "prod.example.com"
+port = 22
+username = "deploy"
+description = "Main production web server"
+tags = ["production", "web", "critical"]
+timeout = 10
+
+[servers.production_web.auth_method]
+type = "public_key"
+key_path = "~/.ssh/id_rsa"
+
+[servers.dev_local]
+name = "Development Box"
+host = "dev.local"
+port = 22
+username = "developer"
+description = "Local development environment"
+tags = ["development", "local"]
+timeout = 5
+
+[servers.dev_local.auth_method]
+type = "agent"
+
+[servers.database_primary]
+name = "Database Primary"
+host = "db-primary.example.com"
+port = 22
+username = "dbadmin"
+description = "Primary database server"
+tags = ["database", "production", "primary"]
+timeout = 15
+
+[servers.database_primary.auth_method]
+type = "public_key"
+key_path = "~/.ssh/db_key"
+
+[servers.staging]
+name = "Staging Server"
+host = "staging.example.com"
+port = 2222
+username = "staging"
+description = "Staging environment for testing"
+tags = ["staging", "testing"]
+timeout = 8
+
+[servers.staging.auth_method]
+type = "interactive"
