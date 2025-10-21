@@ -128,8 +128,14 @@ install_binary() {
     # Create install directory if it doesn't exist
     mkdir -p "$INSTALL_DIR"
     
-    # Move binary to install directory
-    mv "$temp_dir/$BINARY_NAME" "$INSTALL_DIR/"
+    # Move binary to install directory (handle platform-specific naming)
+    if [ -f "$temp_dir/ghost-${PLATFORM}" ]; then
+        mv "$temp_dir/ghost-${PLATFORM}" "$INSTALL_DIR/$BINARY_NAME"
+    elif [ -f "$temp_dir/$BINARY_NAME" ]; then
+        mv "$temp_dir/$BINARY_NAME" "$INSTALL_DIR/"
+    else
+        error "Binary not found in archive"
+    fi
     chmod +x "$INSTALL_DIR/$BINARY_NAME"
     
     # Clean up
