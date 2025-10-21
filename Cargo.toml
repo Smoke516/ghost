@@ -1,6 +1,6 @@
 [package]
 name = "ghost-ssh"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Seawn <your-email@example.com>"]
 description = "A modern, cross-platform SSH connection manager with beautiful terminal UI and security assessment"
