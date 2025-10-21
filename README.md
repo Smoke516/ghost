@@ -2,7 +2,7 @@
 
 A modern, cross-platform SSH connection manager with a beautiful terminal UI, security assessment, and multi-terminal support.
 
-![GitHub Release](https://img.shields.io/github/v/release/smoke516/ghost?style=flat-square)
+![GitHub Release](https://img.shields.io/github/v/release/Smoke516/ghost?style=flat-square)
 ![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
@@ -46,12 +46,12 @@ A modern, cross-platform SSH connection manager with a beautiful terminal UI, se
 
 #### Linux & macOS
 ```bash
-curl -sSL https://raw.githubusercontent.com/smoke516/ghost/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Smoke516/ghost/main/install.sh | bash
 ```
 
 #### Windows (PowerShell)
 ```powershell
-iwr -useb https://raw.githubusercontent.com/smoke516/ghost/main/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/Smoke516/ghost/main/install.ps1 | iex
 ```
 
 ### Manual Installation
@@ -63,13 +63,13 @@ cargo install ghost
 
 #### From Source
 ```bash
-git clone https://github.com/smoke516/ghost.git
+git clone https://github.com/Smoke516/ghost.git
 cd ghost
 cargo install --path .
 ```
 
 #### Binary Releases
-Download pre-compiled binaries from the [Releases](https://github.com/smoke516/ghost/releases) page:
+Download pre-compiled binaries from the [Releases](https://github.com/Smoke516/ghost/releases) page:
 - **Linux**: `ghost-linux-x64.tar.gz`
 - **macOS**: `ghost-macos-x64.tar.gz` 
 - **Windows**: `ghost-windows-x64.zip`
@@ -185,13 +185,63 @@ Ghost prioritizes security in SSH connections:
 - **Terminal Support**: Windows Terminal, Command Prompt, PowerShell
 - **Modern Options**: Alacritty, Wezterm support
 
+#### Windows Defender / Antivirus False Positives
+Some antivirus software may flag the Windows binary as suspicious. This is a common issue with Rust binaries and other compiled executables. If you encounter this:
+
+1. **Add an exclusion** for the Ghost installation directory in Windows Defender
+2. **Verify the binary** using the provided checksums in releases
+3. **Build from source** if you prefer: `cargo install --git https://github.com/Smoke516/ghost`
+4. **Report false positives** to your antivirus vendor
+
+The binary is safe - you can verify this by checking the open source code and building it yourself.
+
+## 🛠️ Troubleshooting
+
+### Windows Installation Issues
+
+#### Antivirus False Positives
+If Windows Defender or other antivirus software flags the executable:
+
+1. **Temporary solution**: Add an exclusion for the Ghost installation directory
+2. **Verify authenticity**: Check the SHA256 checksums provided with each release
+3. **Build from source**: 
+   ```powershell
+   # Install Rust if you haven't already
+   winget install --id Rustlang.Rustup
+   
+   # Clone and build
+   git clone https://github.com/Smoke516/ghost.git
+   cd ghost
+   cargo build --release
+   ```
+
+#### PowerShell Execution Policy
+If the installation script fails with execution policy errors:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+### Linux/macOS Issues
+
+#### Permission Denied
+If you get permission denied when running ghost:
+```bash
+chmod +x ~/.local/bin/ghost
+```
+
+#### PATH Not Updated
+Add to your shell profile (~/.bashrc, ~/.zshrc):
+```bash
+export PATH="$PATH:$HOME/.local/bin"
+```
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ### Development Setup
 ```bash
-git clone https://github.com/yourusername/ghost.git
+git clone https://github.com/Smoke516/ghost.git
 cd ghost
 cargo build
 cargo run
@@ -216,9 +266,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/ghost/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/ghost/discussions)
-- **Documentation**: [Wiki](https://github.com/yourusername/ghost/wiki)
+- **Issues**: [GitHub Issues](https://github.com/Smoke516/ghost/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Smoke516/ghost/discussions)
+- **Documentation**: [Wiki](https://github.com/Smoke516/ghost/wiki)
 
 ---
 

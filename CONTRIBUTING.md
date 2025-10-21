@@ -13,7 +13,7 @@ Thank you for your interest in contributing to Ghost SSH Manager! We welcome con
 
 1. **Fork and clone the repository**
    ```bash
-   git clone https://github.com/yourusername/ghost.git
+   git clone https://github.com/Smoke516/ghost.git
    cd ghost
    ```
 
@@ -37,7 +37,7 @@ Thank you for your interest in contributing to Ghost SSH Manager! We welcome con
 ## 📋 How to Contribute
 
 ### Reporting Issues
-- Use the [GitHub Issues](https://github.com/yourusername/ghost/issues) page
+- Use the [GitHub Issues](https://github.com/Smoke516/ghost/issues) page
 - Search existing issues before creating a new one
 - Provide detailed information including:
   - Operating system and version
@@ -188,7 +188,7 @@ src/
 
 ## 📞 Getting Help
 
-- **Discussions**: Use [GitHub Discussions](https://github.com/yourusername/ghost/discussions)
+- **Discussions**: Use [GitHub Discussions](https://github.com/Smoke516/ghost/discussions)
 - **Chat**: Join our community discussions
 - **Issues**: Create an issue for bugs or feature requests
 
