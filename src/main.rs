@@ -44,10 +44,7 @@ async fn main() -> anyhow::Result<()> {
         args.connection_mode
     };
     
-    eprintln!("🚀 Starting Ghost SSH Manager with connection mode: {:?}...", connection_mode);
     let mut app = App::new(Duration::from_millis(50), connection_mode)?;
-    eprintln!("✅ App created successfully");
     app.run().await?;
-    eprintln!("✅ App finished running");
     Ok(())
 }

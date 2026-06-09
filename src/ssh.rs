@@ -1,4 +1,4 @@
-use crate::models::{HealthStatus, SecurityStatus, ServerConnection};
+use crate::models::{AuthStrength, HealthStatus, ServerConnection};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::collections::HashMap;
@@ -6,9 +6,6 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use std::process::Command;
-
-/// SSH connection timeout in seconds
-const CONNECTION_TIMEOUT: u64 = 10;
 
 /// Available terminal emulators for spawning SSH sessions
 #[derive(Debug, Clone, PartialEq)]
@@ -95,91 +92,130 @@ impl AvailableTerminal {
         }
     }
 
-    /// Get command arguments for spawning SSH session
-    pub fn get_ssh_command(&self, connection: &ServerConnection) -> Option<Vec<String>> {
-        let ssh_cmd = format!("ssh {}@{}", connection.username, connection.host);
-        
+    /// Wrap a program and its arguments into this terminal's argv form, WITHOUT
+    /// going through a shell. Every element is passed as a separate argument, so
+    /// server fields (host / username / key path) can never be interpreted as
+    /// shell syntax. The macOS Terminal path is the one exception — osascript
+    /// requires a command string — so it is explicitly shell- and AppleScript-
+    /// escaped.
+    pub fn wrap_command(&self, program: &str, args: &[String]) -> Option<Vec<String>> {
+        // program followed by its args, as owned strings
+        let prog_and_args = || {
+            let mut v = Vec::with_capacity(args.len() + 1);
+            v.push(program.to_string());
+            v.extend_from_slice(args);
+            v
+        };
+
         match self {
+            // `terminal -- program args...`
             AvailableTerminal::GnomeTerminal => {
-                Some(vec![
-                    "--".to_string(),
-                    "bash".to_string(),
-                    "-c".to_string(),
-                    ssh_cmd
-                ])
-            },
-            AvailableTerminal::XTerm => {
-                Some(vec![
-                    "-e".to_string(),
-                    ssh_cmd
-                ])
-            },
-            AvailableTerminal::Konsole => {
-                Some(vec![
-                    "-e".to_string(),
-                    ssh_cmd
-                ])
-            },
+                let mut v = vec!["--".to_string()];
+                v.extend(prog_and_args());
+                Some(v)
+            }
+            // `terminal -e program args...` — these exec the argv directly.
+            AvailableTerminal::XTerm
+            | AvailableTerminal::Konsole
+            | AvailableTerminal::Alacritty
+            | AvailableTerminal::Ghostty => {
+                let mut v = vec!["-e".to_string()];
+                v.extend(prog_and_args());
+                Some(v)
+            }
+            // xfce4-terminal: `-e` takes a single (shell-parsed) string, but
+            // `-x` consumes the rest of the argv directly — use that.
             AvailableTerminal::XfceTerminal => {
-                Some(vec![
-                    "-e".to_string(),
-                    ssh_cmd
-                ])
-            },
-            AvailableTerminal::WindowsTerminal => {
-                Some(vec![
-                    "ssh".to_string(),
-                    format!("{}@{}", connection.username, connection.host)
-                ])
-            },
-            AvailableTerminal::MacTerminal => {
-                Some(vec![
-                    "-e".to_string(),
-                    format!(
-                        "tell application \"Terminal\" to do script \"{}\"",
-                        ssh_cmd
-                    )
-                ])
-            },
-            AvailableTerminal::Alacritty => {
-                Some(vec![
-                    "-e".to_string(),
-                    "ssh".to_string(),
-                    format!("{}@{}", connection.username, connection.host)
-                ])
-            },
-            AvailableTerminal::Kitty => {
-                Some(vec![
-                    "ssh".to_string(),
-                    format!("{}@{}", connection.username, connection.host)
-                ])
-            },
+                let mut v = vec!["-x".to_string()];
+                v.extend(prog_and_args());
+                Some(v)
+            }
+            // `wezterm start -- program args...`
             AvailableTerminal::Wezterm => {
-                Some(vec![
-                    "start".to_string(),
-                    "--".to_string(),
-                    "ssh".to_string(),
-                    format!("{}@{}", connection.username, connection.host)
-                ])
-            },
-            AvailableTerminal::Ghostty => {
-                Some(vec![
-                    "-e".to_string(),
-                    "ssh".to_string(),
-                    format!("{}@{}", connection.username, connection.host)
-                ])
-            },
-            AvailableTerminal::Warp => {
-                // Warp Terminal doesn't have direct SSH spawning like other terminals
-                // Use the system's default terminal opener instead
-                Some(vec![
-                    "ssh".to_string(),
-                    format!("{}@{}", connection.username, connection.host)
-                ])
-            },
+                let mut v = vec!["start".to_string(), "--".to_string()];
+                v.extend(prog_and_args());
+                Some(v)
+            }
+            // kitty / Windows Terminal / Warp run the program as positional argv.
+            AvailableTerminal::Kitty
+            | AvailableTerminal::WindowsTerminal
+            | AvailableTerminal::Warp => Some(prog_and_args()),
+            // macOS Terminal via osascript needs a string: shell-quote each
+            // argument, then AppleScript-escape the whole command.
+            AvailableTerminal::MacTerminal => {
+                let cmd = std::iter::once(program.to_string())
+                    .chain(args.iter().cloned())
+                    .map(|a| shell_quote(&a))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let script = format!(
+                    "tell application \"Terminal\" to do script \"{}\"",
+                    applescript_escape(&cmd)
+                );
+                Some(vec!["-e".to_string(), script])
+            }
             AvailableTerminal::None => None,
         }
     }
+}
+
+/// Build the argument vector passed to `ssh` (everything after the `ssh`
+/// program name) as separate argv elements — never assembled into a shell
+/// string. Shared by both the direct and new-terminal launch paths.
+fn build_ssh_args(server: &ServerConnection) -> Vec<String> {
+    let mut args = Vec::new();
+
+    if server.port != 22 {
+        args.push("-p".to_string());
+        args.push(server.port.to_string());
+    }
+
+    match &server.auth_method {
+        crate::models::AuthMethod::PublicKey { key_path } => {
+            let expanded = shellexpand::tilde(key_path).to_string();
+            args.push("-i".to_string());
+            args.push(expanded);
+        }
+        crate::models::AuthMethod::Agent => {}
+        crate::models::AuthMethod::Password => {
+            args.push("-o".to_string());
+            args.push("PreferredAuthentications=password".to_string());
+        }
+        crate::models::AuthMethod::Interactive => {
+            args.push("-o".to_string());
+            args.push("PreferredAuthentications=keyboard-interactive".to_string());
+        }
+    }
+
+    args.extend([
+        "-o".to_string(), "ServerAliveInterval=60".to_string(),
+        "-o".to_string(), "ServerAliveCountMax=3".to_string(),
+        "-o".to_string(), "ConnectTimeout=10".to_string(),
+        "-o".to_string(), "BatchMode=no".to_string(),
+    ]);
+
+    args.push(format!("{}@{}", server.username, server.host));
+    args
+}
+
+/// POSIX-shell single-quote escaping: wrap in '...' and escape embedded quotes.
+fn shell_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        if c == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(c);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+/// Escape a string for embedding inside an AppleScript double-quoted literal.
+fn applescript_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// Detect the best available terminal emulator
@@ -203,11 +239,10 @@ pub fn detect_available_terminal() -> AvailableTerminal {
     }
 
     // Check for Windows Terminal
-    if cfg!(target_os = "windows") {
-        if AvailableTerminal::WindowsTerminal.is_available() {
+    if cfg!(target_os = "windows")
+        && AvailableTerminal::WindowsTerminal.is_available() {
             return AvailableTerminal::WindowsTerminal;
         }
-    }
 
     // Try terminals in order of preference (excluding Warp since it doesn't work)
     let terminals = vec![
@@ -236,59 +271,17 @@ pub struct SSHManager {
     connections: HashMap<String, bool>, // Simple connection tracking for now
 }
 
+impl Default for SSHManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SSHManager {
     pub fn new() -> Self {
         Self {
             connections: HashMap::new(),
         }
-    }
-
-    /// Test SSH connection to a server (simplified to TCP + SSH port check)
-    pub async fn test_connection(&mut self, server: &ServerConnection) -> Result<ConnectionTestResult> {
-        let start_time = Instant::now();
-        let result = self.perform_simple_connection_test(server).await;
-        let latency = start_time.elapsed();
-
-        match result {
-            Ok(is_ssh_service) => Ok(ConnectionTestResult {
-                status: HealthStatus::Online,
-                security_status: if is_ssh_service { 
-                    // Use the consistent security assessment
-                    self.assess_security_status(server)
-                } else { 
-                    SecurityStatus::Vulnerable // Port open but not SSH
-                },
-                latency: Some(latency),
-                error_message: None,
-            }),
-            Err(e) => Ok(ConnectionTestResult {
-                status: HealthStatus::Offline,
-                security_status: SecurityStatus::Unknown,
-                latency: Some(latency),
-                error_message: Some(e.to_string()),
-            }),
-        }
-    }
-
-    /// Perform a simple connection test (TCP + basic SSH protocol check)
-    async fn perform_simple_connection_test(&mut self, server: &ServerConnection) -> Result<bool> {
-        let address = format!("{}:{}", server.host, server.port);
-        
-        let _stream = timeout(
-            Duration::from_secs(CONNECTION_TIMEOUT),
-            TcpStream::connect(&address)
-        ).await
-        .context("Connection timeout")?
-        .context("Failed to establish TCP connection")?;
-
-        // For now, just assume it's SSH if we can connect to the port
-        // In a real implementation, you would:
-        // 1. Read the SSH banner
-        // 2. Perform SSH protocol handshake
-        // 3. Check supported authentication methods
-        
-        // If we got this far, the port is open and responsive
-        Ok(true)
     }
 
     /// Perform a simple connectivity test with security assessment
@@ -305,240 +298,127 @@ impl SSHManager {
 
         match result {
             Ok(Ok(_)) => {
-                // Connection successful - assess security based on configuration
-                let security_status = self.assess_security_status(server);
+                // Reachable — surface the configured auth method as a hint.
+                let auth_strength = self.assess_auth_strength(server);
                 Ok(ConnectionTestResult {
                     status: HealthStatus::Online,
-                    security_status,
+                    auth_strength,
                     latency: Some(latency),
                     error_message: None,
                 })
             },
             Ok(Err(e)) => Ok(ConnectionTestResult {
                 status: HealthStatus::Offline,
-                security_status: SecurityStatus::Unknown,
+                auth_strength: AuthStrength::Unknown,
                 latency: Some(latency),
                 error_message: Some(format!("Connection failed: {}", e)),
             }),
             Err(_) => Ok(ConnectionTestResult {
                 status: HealthStatus::Offline,
-                security_status: SecurityStatus::Unknown,
+                auth_strength: AuthStrength::Unknown,
                 latency: Some(latency),
                 error_message: Some("Connection timeout".to_string()),
             }),
         }
     }
-    
-    /// Assess security status based on server configuration
-    fn assess_security_status(&self, server: &ServerConnection) -> SecurityStatus {
+
+    /// Map the configured auth method to an at-a-glance strength hint.
+    ///
+    /// This is a reflection of LOCAL config only — it does not (and cannot, from
+    /// a plain TCP connect) audit the remote host's actual security posture. Its
+    /// only job is to make weaker auth choices (password) visually stand out.
+    fn assess_auth_strength(&self, server: &ServerConnection) -> AuthStrength {
         match &server.auth_method {
-            crate::models::AuthMethod::PublicKey { .. } => SecurityStatus::Secure,
-            crate::models::AuthMethod::Agent => SecurityStatus::Secure,
-            crate::models::AuthMethod::Password => {
-                if server.port != 22 {
-                    SecurityStatus::Secure // Non-standard port + password = decent security
-                } else {
-                    SecurityStatus::Vulnerable // Standard port + password = vulnerable
-                }
-            },
-            crate::models::AuthMethod::Interactive => SecurityStatus::Unknown,
+            crate::models::AuthMethod::PublicKey { .. } => AuthStrength::Key,
+            crate::models::AuthMethod::Agent => AuthStrength::Agent,
+            crate::models::AuthMethod::Password => AuthStrength::Password,
+            crate::models::AuthMethod::Interactive => AuthStrength::Interactive,
         }
     }
 
-    /// Connect to a server interactively by launching SSH in the terminal
-    /// Returns the PID of the spawned terminal process
-    pub async fn connect_interactive(&mut self, server: &ServerConnection) -> Result<u32> {
-        self.connect_with_mode(server, ConnectionMode::Auto).await
-    }
-    
     /// Connect to a server with a specific connection mode
     pub async fn connect_with_mode(&mut self, server: &ServerConnection, mode: ConnectionMode) -> Result<u32> {
-        eprintln!("🚀 DEBUG: Starting connect for server: {} with mode: {:?}", server.name, mode);
-        
-        // First, test if the server is reachable
-        let test_result = self.test_connection(server).await?;
-        
-        match test_result.status {
-            HealthStatus::Online => {
-                self.connections.insert(server.id.clone(), true);
-                
-                match mode {
-                    ConnectionMode::Auto => {
-                        // Try new terminal first, fallback to direct if unavailable
-                        let available_terminal = detect_available_terminal();
-                        if available_terminal != AvailableTerminal::None {
-                            eprintln!("🚀 Using terminal: {:?}", available_terminal);
-                            self.launch_ssh_in_new_terminal(server, available_terminal).await
-                        } else {
-                            eprintln!("⚠️  No suitable terminal found for new window. Using direct connection.");
-                            self.launch_ssh_session(server).await
-                        }
-                    },
-                    ConnectionMode::NewTerminal => {
-                        let available_terminal = detect_available_terminal();
-                        if available_terminal != AvailableTerminal::None {
-                            eprintln!("🚀 Forcing new terminal: {:?}", available_terminal);
-                            self.launch_ssh_in_new_terminal(server, available_terminal).await
-                        } else {
-                            Err(anyhow::anyhow!("No terminal emulator available for new terminal mode. Available terminals: Ghostty, Alacritty, Kitty, Wezterm, GNOME Terminal, Konsole, XFCE Terminal, XTerm"))
-                        }
-                    },
-                    ConnectionMode::Direct => {
-                        eprintln!("🚀 Using direct connection mode");
-                        self.launch_ssh_session(server).await
-                    }
+        // We deliberately do NOT pre-gate on a raw TCP reachability probe.
+        // Hosts behind a bastion/ProxyJump, with port-knocking, or that drop
+        // port scans are perfectly connectable via ssh even when a direct TCP
+        // test to host:port fails. Let ssh itself be the authority on whether
+        // the connection succeeds, and surface its exit status instead.
+        self.connections.insert(server.id.clone(), true);
+
+        match mode {
+            ConnectionMode::Auto => {
+                // Try a new terminal first, fall back to direct if none available.
+                let available_terminal = detect_available_terminal();
+                if available_terminal != AvailableTerminal::None {
+                    self.launch_ssh_in_new_terminal(server, available_terminal).await
+                } else {
+                    self.launch_ssh_session(server).await
                 }
             }
-            _ => {
-                Err(anyhow::anyhow!(
-                    "Cannot connect: {}", 
-                    test_result.error_message.unwrap_or_else(|| "Connection failed".to_string())
-                ))
+            ConnectionMode::NewTerminal => {
+                let available_terminal = detect_available_terminal();
+                if available_terminal != AvailableTerminal::None {
+                    self.launch_ssh_in_new_terminal(server, available_terminal).await
+                } else {
+                    Err(anyhow::anyhow!("No terminal emulator available for new terminal mode. Available terminals: Ghostty, Alacritty, Kitty, Wezterm, GNOME Terminal, Konsole, XFCE Terminal, XTerm"))
+                }
             }
+            ConnectionMode::Direct => self.launch_ssh_session(server).await,
         }
     }
     
-    /// Launch SSH session in a new terminal window
+    /// Launch SSH session in a new terminal window.
+    ///
+    /// The ssh invocation is assembled as a vector of discrete argv elements
+    /// (`build_ssh_args`) and wrapped into the terminal's launch form via
+    /// `wrap_command`, so no untrusted server field is ever interpolated into a
+    /// shell command string.
     async fn launch_ssh_in_new_terminal(&self, server: &ServerConnection, terminal: AvailableTerminal) -> Result<u32> {
-        let mut terminal_cmd = Command::new(
-            terminal.command_name()
-                .ok_or_else(|| anyhow::anyhow!("Invalid terminal type"))?
-        );
-        
-        // Get SSH command arguments for the terminal
-        let ssh_args = terminal.get_ssh_command(server)
+        let cmd_name = terminal
+            .command_name()
+            .ok_or_else(|| anyhow::anyhow!("Invalid terminal type"))?;
+
+        let ssh_args = build_ssh_args(server);
+        let terminal_args = terminal
+            .wrap_command("ssh", &ssh_args)
             .ok_or_else(|| anyhow::anyhow!("Cannot generate SSH command for this terminal"))?;
-        
-        // Add the SSH arguments to the terminal command
-        terminal_cmd.args(&ssh_args);
-        
-        // Add SSH options for the connection
-        let mut ssh_options = Vec::new();
-        
-        // Add port if not default
-        if server.port != 22 {
-            ssh_options.push("-p".to_string());
-            ssh_options.push(server.port.to_string());
-        }
-        
-        // Add authentication method specific parameters
-        match &server.auth_method {
-            crate::models::AuthMethod::PublicKey { key_path } => {
-                let expanded_path = shellexpand::tilde(key_path);
-                ssh_options.push("-i".to_string());
-                ssh_options.push(expanded_path.to_string());
-            }
-            crate::models::AuthMethod::Agent => {
-                // SSH agent is the default, no special flags needed
-            }
-            crate::models::AuthMethod::Password => {
-                ssh_options.push("-o".to_string());
-                ssh_options.push("PreferredAuthentications=password".to_string());
-            }
-            crate::models::AuthMethod::Interactive => {
-                ssh_options.push("-o".to_string());
-                ssh_options.push("PreferredAuthentications=keyboard-interactive".to_string());
-            }
-        }
-        
-        // Add useful SSH options
-        ssh_options.extend(vec![
-            "-o".to_string(), "ServerAliveInterval=60".to_string(),
-            "-o".to_string(), "ServerAliveCountMax=3".to_string(),
-            "-o".to_string(), "ConnectTimeout=10".to_string(),
-            "-o".to_string(), "BatchMode=no".to_string(),
-        ]);
-        
-        // For terminals that need the full SSH command, rebuild it
-        if matches!(terminal, AvailableTerminal::GnomeTerminal | AvailableTerminal::XTerm | 
-                             AvailableTerminal::Konsole | AvailableTerminal::XfceTerminal) {
-            // Replace the simple SSH command with our enhanced version
-            terminal_cmd = Command::new(
-                terminal.command_name().unwrap()
-            );
-            
-            let full_ssh_cmd = format!(
-                "ssh {} {}@{}",
-                ssh_options.join(" "),
-                server.username,
-                server.host
-            );
-            
-            match terminal {
-                AvailableTerminal::GnomeTerminal => {
-                    terminal_cmd.args(&["--", "bash", "-c", &full_ssh_cmd]);
-                },
-                _ => {
-                    terminal_cmd.args(&["-e", &full_ssh_cmd]);
-                }
-            }
-        } else {
-            // For other terminals, add SSH options as separate arguments
-            terminal_cmd.args(&ssh_options);
-        }
-        
-        eprintln!("🚀 DEBUG: Launching terminal: {:?}", terminal);
-        eprintln!("🚀 DEBUG: Terminal command: {:?}", terminal_cmd);
-        
-        // Spawn the terminal process with proper detachment
+
+        let mut terminal_cmd = Command::new(cmd_name);
+        terminal_cmd.args(&terminal_args);
+
+        // Spawn the terminal detached so its I/O can't interfere with the TUI.
         use std::process::Stdio;
-        
         let child = terminal_cmd
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .context("Failed to spawn terminal process")?;
-        
+
         let pid = child.id();
-        eprintln!("✅ Spawned terminal with PID: {}", pid);
-        
-        // Don't wait for the child process - let it run independently
-        // This prevents terminal output interference with Ghost's TUI
-        std::mem::forget(child);
-        
-        // Small delay to ensure terminal has time to launch
+
+        // Reap the terminal in the background when it eventually exits. This lets
+        // the window run independently of Ghost without leaking a zombie process
+        // (the previous `mem::forget` left the child unwaited-for).
+        std::thread::spawn(move || {
+            let mut child = child;
+            let _ = child.wait();
+        });
+
+        // Small delay to ensure the terminal has time to launch.
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        
+
         Ok(pid)
     }
     
-    /// Launch SSH session directly in the current terminal
+    /// Launch SSH session directly in the current terminal.
     async fn launch_ssh_session(&self, server: &ServerConnection) -> Result<u32> {
-        use std::process::Command;
-        
-        // Build SSH command based on authentication method
+        // Same discrete-argv construction as the new-terminal path: ssh receives
+        // each option as its own argument, so nothing is shell-interpreted.
         let mut ssh_cmd = Command::new("ssh");
-        
-        // Add basic connection parameters
-        ssh_cmd.arg("-p").arg(server.port.to_string());
-        ssh_cmd.arg(format!("{}@{}", server.username, server.host));
-        
-        // Add authentication method specific parameters
-        match &server.auth_method {
-            crate::models::AuthMethod::PublicKey { key_path } => {
-                let expanded_path = shellexpand::tilde(key_path);
-                ssh_cmd.arg("-i").arg(&*expanded_path);
-            }
-            crate::models::AuthMethod::Agent => {
-                // SSH agent is the default, no special flags needed
-            }
-            crate::models::AuthMethod::Password => {
-                // For password auth, we might want to disable other methods
-                ssh_cmd.arg("-o").arg("PreferredAuthentications=password");
-            }
-            crate::models::AuthMethod::Interactive => {
-                ssh_cmd.arg("-o").arg("PreferredAuthentications=keyboard-interactive");
-            }
-        }
-        
-        // Add some useful SSH options
-        ssh_cmd.arg("-o").arg("ServerAliveInterval=60");
-        ssh_cmd.arg("-o").arg("ServerAliveCountMax=3");
-        ssh_cmd.arg("-o").arg("ConnectTimeout=10");
-        ssh_cmd.arg("-o").arg("BatchMode=no"); // Ensure interactive prompts work
-        
-        // Execute SSH directly in current terminal
+        ssh_cmd.args(build_ssh_args(server));
+
+        // Execute SSH directly in the current terminal
         self.execute_ssh_direct(ssh_cmd, server).await
     }
     
@@ -549,10 +429,10 @@ impl SSHManager {
         use std::io::stdout;
         
         // Suspend Ghost's TUI - disable raw mode and leave alternate screen
-        if let Err(_) = disable_raw_mode() {
+        if disable_raw_mode().is_err() {
             eprintln!("Warning: Failed to disable raw mode");
         }
-        if let Err(_) = stdout().execute(LeaveAlternateScreen) {
+        if stdout().execute(LeaveAlternateScreen).is_err() {
             eprintln!("Warning: Failed to leave alternate screen");
         }
         
@@ -619,10 +499,10 @@ impl SSHManager {
         };
         
         // Restore Ghost's TUI - re-enable raw mode and enter alternate screen
-        if let Err(_) = stdout().execute(EnterAlternateScreen) {
+        if stdout().execute(EnterAlternateScreen).is_err() {
             eprintln!("Warning: Failed to enter alternate screen");
         }
-        if let Err(_) = enable_raw_mode() {
+        if enable_raw_mode().is_err() {
             eprintln!("Warning: Failed to enable raw mode");
         }
         
@@ -645,7 +525,7 @@ impl SSHManager {
 #[derive(Debug, Clone)]
 pub struct ConnectionTestResult {
     pub status: HealthStatus,
-    pub security_status: SecurityStatus,
+    pub auth_strength: AuthStrength,
     pub latency: Option<Duration>,
     pub error_message: Option<String>,
 }
@@ -654,7 +534,7 @@ pub struct ConnectionTestResult {
 impl ConnectionTestResult {
     pub fn update_server_stats(&self, server: &mut ServerConnection) {
         server.health_status = self.status.clone();
-        server.security_status = self.security_status.clone();
+        server.auth_strength = self.auth_strength.clone();
         
         // Update connection stats
         server.stats.latency = self.latency;
@@ -677,3 +557,81 @@ impl ConnectionTestResult {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ServerConnection;
+
+    fn server(host: &str, user: &str, port: u16) -> ServerConnection {
+        ServerConnection::new("test".to_string(), host.to_string(), port, user.to_string())
+    }
+
+    #[test]
+    fn target_with_metacharacters_stays_one_argv_element() {
+        // A host carrying shell syntax must remain a SINGLE argv element so it
+        // can never be interpreted as a separate command.
+        let s = server("evil; touch /tmp/pwned", "root", 2222);
+        let args = build_ssh_args(&s);
+
+        assert!(args.contains(&"-p".to_string()));
+        assert!(args.contains(&"2222".to_string()));
+        assert_eq!(args.last().unwrap(), "root@evil; touch /tmp/pwned");
+        // The payload lives wholly inside one element, never split out.
+        assert_eq!(args.iter().filter(|a| a.contains("touch")).count(), 1);
+    }
+
+    #[test]
+    fn default_port_omits_p_flag() {
+        let args = build_ssh_args(&server("example.com", "me", 22));
+        assert!(!args.contains(&"-p".to_string()));
+        assert_eq!(args.last().unwrap(), "me@example.com");
+    }
+
+    #[test]
+    fn gnome_wrap_uses_argv_not_a_shell() {
+        let s = server("evil$(id)", "root", 22);
+        let args = build_ssh_args(&s);
+        let wrapped = AvailableTerminal::GnomeTerminal
+            .wrap_command("ssh", &args)
+            .unwrap();
+
+        // No shell is spawned: `bash -c` must not appear anywhere.
+        assert!(!wrapped.iter().any(|a| a == "bash" || a == "-c"));
+        assert_eq!(wrapped[0], "--");
+        assert_eq!(wrapped[1], "ssh");
+        // The dangerous host survives as a single, inert argument.
+        assert!(wrapped.iter().any(|a| a == "root@evil$(id)"));
+    }
+
+    #[test]
+    fn xfce_uses_x_flag_for_direct_argv() {
+        let args = build_ssh_args(&server("h", "u", 22));
+        let wrapped = AvailableTerminal::XfceTerminal
+            .wrap_command("ssh", &args)
+            .unwrap();
+        // `-x` consumes argv directly; `-e` (string, shell-parsed) is avoided.
+        assert_eq!(wrapped[0], "-x");
+        assert_eq!(wrapped[1], "ssh");
+    }
+
+    #[test]
+    fn mac_terminal_command_is_escaped() {
+        // A host with a double-quote could otherwise close the AppleScript
+        // `do script "..."` literal early.
+        let s = server("h\"; rm -rf ~", "u", 22);
+        let args = build_ssh_args(&s);
+        let wrapped = AvailableTerminal::MacTerminal
+            .wrap_command("ssh", &args)
+            .unwrap();
+        assert_eq!(wrapped[0], "-e");
+        // The embedded quote is AppleScript-escaped (\").
+        assert!(wrapped[1].contains("\\\""));
+    }
+
+    #[test]
+    fn shell_quote_neutralizes_metacharacters() {
+        assert_eq!(shell_quote("a b"), "'a b'");
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+        assert_eq!(shell_quote("x; rm -rf ~"), "'x; rm -rf ~'");
+    }
+}

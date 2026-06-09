@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 
 /// Available theme variants
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ThemeVariant {
+    #[default]
     TokyoNightDark,
     TokyoNightLight,
     DraculaDark,
@@ -18,11 +20,6 @@ pub enum ThemeVariant {
     Ayu,
 }
 
-impl Default for ThemeVariant {
-    fn default() -> Self {
-        ThemeVariant::TokyoNightDark
-    }
-}
 
 impl ThemeVariant {
     pub fn all() -> Vec<ThemeVariant> {

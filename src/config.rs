@@ -171,14 +171,40 @@ impl ConfigManager {
         Ok(config)
     }
 
-    /// Save configuration to file
+    /// Save configuration to file.
+    ///
+    /// Written atomically: serialize to a temp file in the same directory,
+    /// restrict its permissions, then rename it over the real config. A crash or
+    /// full disk mid-write can no longer truncate/corrupt the existing server
+    /// list, and the config is not left world-readable.
     pub fn save_config(&self, config: &Config) -> Result<()> {
         let toml_string = toml::to_string_pretty(config)
             .context("Failed to serialize config")?;
-        
-        fs::write(&self.config_path, toml_string)
-            .context("Failed to write config file")?;
-        
+
+        // Temp file in the same directory (so the rename stays on one filesystem
+        // and is therefore atomic). The PID suffix avoids collisions between
+        // concurrent writers.
+        let tmp_path = self
+            .config_path
+            .with_extension(format!("tmp.{}", std::process::id()));
+
+        fs::write(&tmp_path, &toml_string)
+            .context("Failed to write temporary config file")?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) =
+                fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600))
+            {
+                let _ = fs::remove_file(&tmp_path); // best-effort cleanup
+                return Err(e).context("Failed to set config file permissions");
+            }
+        }
+
+        fs::rename(&tmp_path, &self.config_path)
+            .context("Failed to replace config file")?;
+
         Ok(())
     }
 
@@ -254,8 +280,6 @@ impl ConfigManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-    use std::env;
 
     #[test]
     fn test_config_serialization() {
