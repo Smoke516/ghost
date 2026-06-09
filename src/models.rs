@@ -135,7 +135,11 @@ pub struct ServerConnection {
     pub auth_strength: AuthStrength,
     #[serde(skip)]
     pub stats: ConnectionStats,
-    
+    /// Last health-check error message, if the most recent check failed
+    /// (cleared on a successful check). Runtime-only.
+    #[serde(skip)]
+    pub last_error: Option<String>,
+
     // Session tracking (not persisted)
     #[serde(skip)]
     pub active_sessions: Vec<SessionInfo>,
@@ -247,6 +251,7 @@ impl ServerConnection {
             health_status: HealthStatus::Unknown,
             auth_strength: AuthStrength::Unknown,
             stats: ConnectionStats::default(),
+            last_error: None,
             active_sessions: Vec::new(),
         }
     }

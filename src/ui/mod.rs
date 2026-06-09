@@ -385,8 +385,18 @@ fn render_details_panel(f: &mut Frame, area: Rect, app_state: &AppState) {
             ]),
         ];
         
-        // Add session details if any are active
         let mut details = details;
+
+        // Surface the latest health-check error, if the last check failed.
+        if let Some(err) = &connection.last_error {
+            details.push(Line::from(vec![]));
+            details.push(Line::from(vec![
+                Span::styled("⚠ Error: ", Style::default().fg(TokyoNight::RED).add_modifier(Modifier::BOLD)),
+                Span::styled(err.clone(), Style::default().fg(TokyoNight::RED)),
+            ]));
+        }
+
+        // Add session details if any are active
         if connection.has_active_sessions() {
             details.push(Line::from(vec![]));
             for (i, session) in connection.active_sessions.iter().enumerate() {
