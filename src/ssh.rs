@@ -535,6 +535,8 @@ impl ConnectionTestResult {
     pub fn update_server_stats(&self, server: &mut ServerConnection) {
         server.health_status = self.status.clone();
         server.auth_strength = self.auth_strength.clone();
+        // Surface the latest health-check error (None on success clears it).
+        server.last_error = self.error_message.clone();
         
         // Update connection stats
         server.stats.latency = self.latency;
