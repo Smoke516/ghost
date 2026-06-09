@@ -55,29 +55,21 @@ impl App {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        eprintln!("🔧 Setting up terminal...");
         // Setup terminal
         enable_raw_mode()?;
         stdout().execute(EnterAlternateScreen)?;
-        eprintln!("✅ Terminal setup complete");
-        
+
         let backend = CrosstermBackend::new(stdout());
-        eprintln!("🔧 Creating terminal backend...");
         let mut terminal = Terminal::new(backend)?;
-        eprintln!("✅ Terminal created successfully");
 
         // Start background health monitoring
         let servers: Vec<ServerConnection> = self.state.server_manager.connections.values().cloned().collect();
-        eprintln!("🔧 Starting health monitoring for {} servers...", servers.len());
         if !servers.is_empty() {
             let health_task = self.health_monitor.start(servers.clone()).await;
             self.health_task = Some(health_task);
         }
-        eprintln!("✅ Health monitoring started");
 
-        eprintln!("🚀 Starting main app loop...");
         let result = self.run_app(&mut terminal).await;
-        eprintln!("✅ Main app loop finished");
 
         // Stop health monitoring
         self.health_monitor.stop().await;
@@ -325,11 +317,8 @@ impl App {
     }
 
     async fn handle_connecting_mode(&mut self, key: KeyCode) -> Result<()> {
-        match key {
-            KeyCode::Esc => {
-                self.state.mode = AppMode::Normal;
-            }
-            _ => {}
+        if key == KeyCode::Esc {
+            self.state.mode = AppMode::Normal;
         }
         Ok(())
     }
@@ -897,7 +886,7 @@ impl App {
 
     fn get_selected_session(&self) -> Option<&SessionInfo> {
         let sessions = self.state.get_filtered_sessions();
-        sessions.get(self.state.session_selected_index).map(|session| *session)
+        sessions.get(self.state.session_selected_index).copied()
     }
 
     async fn refresh_all_sessions(&mut self) {
@@ -923,12 +912,10 @@ impl App {
                         TooltipCategory::Server,
                     );
                 } else if let Some(connection) = self.get_selected_connection() {
-                    let key_hints = vec![
-                        "Enter: Connect".to_string(),
+                    let key_hints = ["Enter: Connect".to_string(),
                         "e: Edit".to_string(), 
                         "d: Delete".to_string(),
-                        "r: Refresh status".to_string(),
-                    ];
+                        "r: Refresh status".to_string()];
                     
                     self.state.show_tooltip(
                         format!("Server: {}", connection.name),

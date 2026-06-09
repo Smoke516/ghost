@@ -1,5 +1,5 @@
 use crate::colors::TokyoNight;
-use crate::models::{AppMode, AppState, HealthStatus, SecurityStatus};
+use crate::models::{AppMode, AppState, AuthStrength, HealthStatus};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -139,11 +139,11 @@ fn render_server_list(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                 HealthStatus::Unknown => TokyoNight::STATUS_UNKNOWN,
             };
 
-            let security_color = match conn.security_status {
-                SecurityStatus::Secure => TokyoNight::GREEN,
-                SecurityStatus::Vulnerable => TokyoNight::ORANGE,
-                SecurityStatus::Compromised => TokyoNight::RED,
-                SecurityStatus::Unknown => TokyoNight::COMMENT,
+            let auth_color = match conn.auth_strength {
+                AuthStrength::Key | AuthStrength::Agent => TokyoNight::GREEN,
+                AuthStrength::Password => TokyoNight::ORANGE,
+                AuthStrength::Interactive => TokyoNight::COMMENT,
+                AuthStrength::Unknown => TokyoNight::COMMENT,
             };
 
             // Use spinning globe for connecting servers, otherwise use normal symbol
@@ -174,7 +174,7 @@ fn render_server_list(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                     Span::styled(quick_num.clone(), Style::default().fg(TokyoNight::COMMENT)),
                     Span::styled(health_symbol, Style::default().fg(health_color)),
                     Span::raw(" "),
-                    Span::styled(conn.security_status.symbol(), Style::default().fg(security_color)),
+                    Span::styled(conn.auth_strength.symbol(), Style::default().fg(auth_color)),
                     Span::raw(" "),
                     Span::styled(&conn.name, style),
                     if conn.has_active_sessions() {
@@ -335,12 +335,12 @@ fn render_details_panel(f: &mut Frame, area: Rect, app_state: &AppState) {
                     Style::default().fg(get_health_color(&connection.health_status))),
             ]),
             Line::from(vec![
-                Span::styled("Security: ", Style::default().fg(TokyoNight::CYAN).add_modifier(Modifier::BOLD)),
-                Span::styled(connection.security_status.symbol(), 
-                    Style::default().fg(get_security_color(&connection.security_status))),
+                Span::styled("Auth: ", Style::default().fg(TokyoNight::CYAN).add_modifier(Modifier::BOLD)),
+                Span::styled(connection.auth_strength.symbol(),
+                    Style::default().fg(get_auth_color(&connection.auth_strength))),
                 Span::raw(" "),
-                Span::styled(connection.security_status.as_str(), 
-                    Style::default().fg(get_security_color(&connection.security_status))),
+                Span::styled(connection.auth_strength.as_str(),
+                    Style::default().fg(get_auth_color(&connection.auth_strength))),
             ]),
             Line::from(vec![]),
             Line::from(vec![
@@ -1117,12 +1117,12 @@ fn get_health_color(status: &HealthStatus) -> Color {
     }
 }
 
-fn get_security_color(status: &SecurityStatus) -> Color {
+fn get_auth_color(status: &AuthStrength) -> Color {
     match status {
-        SecurityStatus::Secure => TokyoNight::GREEN,
-        SecurityStatus::Vulnerable => TokyoNight::ORANGE,
-        SecurityStatus::Compromised => TokyoNight::RED,
-        SecurityStatus::Unknown => TokyoNight::COMMENT,
+        AuthStrength::Key | AuthStrength::Agent => TokyoNight::GREEN,
+        AuthStrength::Password => TokyoNight::ORANGE,
+        AuthStrength::Interactive => TokyoNight::COMMENT,
+        AuthStrength::Unknown => TokyoNight::COMMENT,
     }
 }
 
@@ -1182,12 +1182,10 @@ fn render_analytics_overview(f: &mut Frame, area: Rect, app_state: &AppState) {
     };
     
     // Render stat boxes
-    let stats = vec![
-        ("Total Connections", total_connections.to_string(), TokyoNight::CYAN),
+    let stats = [("Total Connections", total_connections.to_string(), TokyoNight::CYAN),
         ("Success Rate", format!("{:.1}%", success_rate), TokyoNight::GREEN),
         ("Active Sessions", app_state.server_manager.active_session_count.to_string(), TokyoNight::BLUE),
-        ("Online Servers", format!("{}/{}", app_state.server_manager.online_count(), app_state.server_manager.connection_count()), TokyoNight::THEME_GREEN),
-    ];
+        ("Online Servers", format!("{}/{}", app_state.server_manager.online_count(), app_state.server_manager.connection_count()), TokyoNight::THEME_GREEN)];
     
     for (i, (label, value, color)) in stats.iter().enumerate() {
         if let Some(chunk) = chunks.get(i) {
@@ -1512,12 +1510,10 @@ fn render_session_summary_header(f: &mut Frame, area: Rect, app_state: &AppState
         .constraints([Constraint::Percentage(25), Constraint::Percentage(25), Constraint::Percentage(25), Constraint::Percentage(25)])
         .split(area);
 
-    let stats = vec![
-        ("📊 Total", sessions.len().to_string(), TokyoNight::CYAN),
+    let stats = [("📊 Total", sessions.len().to_string(), TokyoNight::CYAN),
         ("⚡ Active", active_count.to_string(), TokyoNight::STATUS_ONLINE),
         ("💤 Idle", idle_count.to_string(), TokyoNight::ORANGE),
-        ("⏱ Total Time", total_duration_str, TokyoNight::PURPLE),
-    ];
+        ("⏱ Total Time", total_duration_str, TokyoNight::PURPLE)];
 
     for (i, (label, value, color)) in stats.iter().enumerate() {
         if let Some(chunk) = chunks.get(i) {

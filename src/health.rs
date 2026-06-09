@@ -1,4 +1,4 @@
-use crate::models::{HealthStatus, SecurityStatus, ServerConnection};
+use crate::models::{AuthStrength, HealthStatus, ServerConnection};
 use crate::ssh::{ConnectionMode, ConnectionTestResult, SSHManager};
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,7 +58,7 @@ impl HealthMonitor {
                     let result = ssh_manager.quick_health_check(server).await
                         .unwrap_or_else(|e| ConnectionTestResult {
                             status: HealthStatus::Unknown,
-                            security_status: SecurityStatus::Unknown,
+                            auth_strength: AuthStrength::Unknown,
                             latency: None,
                             error_message: Some(format!("Health check error: {}", e)),
                         });
@@ -94,7 +94,7 @@ impl HealthMonitor {
         ssh_manager.quick_health_check(server).await
             .unwrap_or_else(|e| ConnectionTestResult {
                 status: HealthStatus::Unknown,
-                security_status: SecurityStatus::Unknown,
+                auth_strength: AuthStrength::Unknown,
                 latency: None,
                 error_message: Some(format!("Immediate check error: {}", e)),
             })

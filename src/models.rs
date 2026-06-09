@@ -39,32 +39,45 @@ impl HealthStatus {
     }
 }
 
-/// Security status assessment for SSH connections
+/// At-a-glance hint of how a server authenticates.
+///
+/// IMPORTANT: this reflects the *local connection configuration* only — it is
+/// NOT a security audit of the remote host. It cannot tell you whether the
+/// server itself is patched, hardened, or compromised; it only surfaces which
+/// auth method you've configured, so weaker choices (password) stand out.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub enum SecurityStatus {
+pub enum AuthStrength {
+    /// Public-key file (`-i <key>`)
+    Key,
+    /// ssh-agent
+    Agent,
+    /// Password authentication (weaker — phishable/brute-forceable)
+    Password,
+    /// Keyboard-interactive
+    Interactive,
+    /// Not yet assessed
     #[default]
-    Secure,
-    Vulnerable,
-    Compromised,
     Unknown,
 }
 
-impl SecurityStatus {
+impl AuthStrength {
     pub fn as_str(&self) -> &'static str {
         match self {
-            SecurityStatus::Secure => "SECURE",
-            SecurityStatus::Vulnerable => "VULNERABLE", 
-            SecurityStatus::Compromised => "COMPROMISED",
-            SecurityStatus::Unknown => "UNKNOWN",
+            AuthStrength::Key => "KEY",
+            AuthStrength::Agent => "AGENT",
+            AuthStrength::Password => "PASSWORD",
+            AuthStrength::Interactive => "INTERACTIVE",
+            AuthStrength::Unknown => "UNKNOWN",
         }
     }
-    
+
     pub fn symbol(&self) -> &'static str {
         match self {
-            SecurityStatus::Secure => "🛡",
-            SecurityStatus::Vulnerable => "⚠",
-            SecurityStatus::Compromised => "💀",
-            SecurityStatus::Unknown => "?",
+            AuthStrength::Key => "🔑",
+            AuthStrength::Agent => "🔑",
+            AuthStrength::Password => "⚠",
+            AuthStrength::Interactive => "💬",
+            AuthStrength::Unknown => "?",
         }
     }
 }
@@ -119,7 +132,7 @@ pub struct ServerConnection {
     #[serde(skip)]
     pub health_status: HealthStatus,
     #[serde(skip)]
-    pub security_status: SecurityStatus,
+    pub auth_strength: AuthStrength,
     #[serde(skip)]
     pub stats: ConnectionStats,
     
@@ -232,7 +245,7 @@ impl ServerConnection {
             created_at: now,
             last_modified: now,
             health_status: HealthStatus::Unknown,
-            security_status: SecurityStatus::Unknown,
+            auth_strength: AuthStrength::Unknown,
             stats: ConnectionStats::default(),
             active_sessions: Vec::new(),
         }
