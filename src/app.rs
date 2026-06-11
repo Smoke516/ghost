@@ -120,6 +120,7 @@ impl App {
             AppMode::AddServer => self.handle_add_server_mode(key).await?,
             AppMode::EditServer(_) => self.handle_edit_server_mode(key).await?,
             AppMode::ConfirmDelete(_) => self.handle_confirm_delete_mode(key).await?,
+            AppMode::ConfirmDiscard => self.handle_confirm_discard_mode(key).await?,
             AppMode::Help => self.handle_help_mode(key).await?,
             AppMode::Connecting(_) => self.handle_connecting_mode(key).await?,
             AppMode::Loading(_) => self.handle_loading_mode(key).await?,
@@ -300,6 +301,28 @@ impl App {
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 self.state.mode = AppMode::Normal;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_confirm_discard_mode(&mut self, key: KeyCode) -> Result<()> {
+        match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Discard the form and return to the main view.
+                self.state.server_form = None;
+                self.state.mode = AppMode::Normal;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                // Keep editing: restore the form mode it came from.
+                self.state.mode = match &self.state.server_form {
+                    Some(form) if form.is_editing => {
+                        AppMode::EditServer(form.original_id.clone().unwrap_or_default())
+                    }
+                    Some(_) => AppMode::AddServer,
+                    None => AppMode::Normal,
+                };
             }
             _ => {}
         }
@@ -691,12 +714,10 @@ impl App {
         if let Some(ref mut form) = self.state.server_form {
             match key {
                 KeyCode::Esc => {
-                    // Check if form has input and warn user
+                    // If the form has unsaved input, ask for confirmation before
+                    // discarding. Otherwise close immediately.
                     if form.has_input() {
-                        self.state.show_popup = true;
-                        self.state.popup_message = "Press Esc again to discard changes or Enter to save".to_string();
-                        self.state.popup_shown_at = Some(Utc::now());
-                        // TODO: Add confirmation dialog state
+                        self.state.mode = AppMode::ConfirmDiscard;
                         return Ok(());
                     }
                     self.state.server_form = None;

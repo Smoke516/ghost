@@ -1,6 +1,11 @@
 use crate::config::AuthMethodConfig;
 use crate::models::{AuthMethod, ServerConnection};
 
+/// Default SSH key used for Public Key auth when no path is entered.
+const DEFAULT_KEY_PATH: &str = "~/.ssh/id_rsa";
+/// Index of the SSH key path field within `ServerForm::fields`.
+const KEY_PATH_FIELD: usize = 5;
+
 /// Represents a text input field in a form
 #[derive(Debug, Clone)]
 pub struct InputField {
@@ -157,6 +162,9 @@ impl ServerForm {
             InputField::new("Port", "22"),
             InputField::new("Username", "user"),
             InputField::new("Description", "Optional description"),
+            // Only used when the auth method is "Public Key"; left blank falls
+            // back to the default key below.
+            InputField::new("SSH Key Path (Public Key auth)", DEFAULT_KEY_PATH),
         ];
 
         let mut tags_input = InputField::new("Tags", "web,production");
@@ -197,6 +205,12 @@ impl ServerForm {
         if let Some(desc) = &connection.description {
             form.fields[4].value = desc.clone();
             form.fields[4].cursor_position = desc.len();
+        }
+
+        // Pre-fill the key path when editing a Public Key connection.
+        if let AuthMethod::PublicKey { key_path } = &connection.auth_method {
+            form.fields[KEY_PATH_FIELD].value = key_path.clone();
+            form.fields[KEY_PATH_FIELD].cursor_position = key_path.len();
         }
 
         // Set auth method
@@ -328,13 +342,17 @@ impl ServerForm {
         // Set auth method
         let auth_config: AuthMethodConfig = self.auth_method.clone().into();
         
-        // For public key, use custom path if different from default
+        // For public key, use the path entered in the form, falling back to the
+        // default key when the field is left blank.
         let auth_method = match &auth_config {
             AuthMethodConfig::PublicKey { .. } => {
-                // TODO: Add a separate field for key path in the form
-                AuthMethod::PublicKey {
-                    key_path: "~/.ssh/id_rsa".to_string(),
-                }
+                let entered = self.fields[KEY_PATH_FIELD].value.trim();
+                let key_path = if entered.is_empty() {
+                    DEFAULT_KEY_PATH.to_string()
+                } else {
+                    entered.to_string()
+                };
+                AuthMethod::PublicKey { key_path }
             }
             _ => auth_config.into(),
         };

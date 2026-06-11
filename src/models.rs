@@ -196,7 +196,9 @@ pub struct ConnectionHistoryEntry {
     pub duration: Option<Duration>,
 }
 
-/// Analytics data for the entire application
+/// Analytics data for the entire application.
+// Data model for the analytics feature; not yet populated at runtime.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlobalAnalytics {
     pub total_connections: u32,
@@ -208,6 +210,7 @@ pub struct GlobalAnalytics {
 }
 
 /// Daily usage statistics
+#[allow(dead_code)] // part of the analytics data model; not yet populated
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyUsage {
     pub date: DateTime<Utc>,
@@ -216,6 +219,7 @@ pub struct DailyUsage {
 }
 
 /// Server usage statistics for ranking
+#[allow(dead_code)] // part of the analytics data model; not yet populated
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerUsage {
     pub server_id: String,
@@ -469,6 +473,8 @@ pub enum AppMode {
     AddServer,
     EditServer(String),
     ConfirmDelete(String),
+    /// Confirm discarding unsaved changes in the add/edit form.
+    ConfirmDiscard,
     Help,
     Connecting(String),
     Loading(LoadingContext),
@@ -498,6 +504,7 @@ pub struct TooltipInfo {
 }
 
 /// Categories for organizing tooltips
+#[allow(dead_code)] // Theme/Layout categories reserved for upcoming tooltips
 #[derive(Debug, Clone, PartialEq)]
 pub enum TooltipCategory {
     Navigation,
@@ -511,10 +518,12 @@ pub enum TooltipCategory {
 /// Performance metrics for the application
 #[derive(Debug, Clone)]
 pub struct PerformanceMetrics {
+    #[allow(dead_code)] // tracked for a future metrics view
     pub app_startup_time: Option<Duration>,
     pub last_refresh_duration: Option<Duration>,
     pub average_refresh_time: Duration,
     pub total_refreshes: u32,
+    #[allow(dead_code)] // tracked for a future metrics view
     pub memory_usage: Option<u64>, // In bytes
     pub frame_rate: f32, // Frames per second
     pub ui_render_time: Option<Duration>,
@@ -599,6 +608,7 @@ impl AppState {
     }
     
     /// Get session by PID
+    #[allow(dead_code)] // helper kept for session lookups; not yet called
     pub fn get_session_by_pid(&self, pid: u32) -> Option<(&ServerConnection, &SessionInfo)> {
         for conn in self.server_manager.connections.values() {
             for session in &conn.active_sessions {
@@ -691,6 +701,7 @@ impl AppState {
     }
     
     /// Get loading progress as a percentage string
+    #[allow(dead_code)] // helper for loading UI; not yet called
     pub fn get_loading_progress_display(&self) -> String {
         match &self.mode {
             AppMode::Loading(LoadingContext::RefreshingHealth { completed, total }) => {

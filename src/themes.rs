@@ -56,6 +56,7 @@ impl ThemeVariant {
         }
     }
 
+    #[allow(dead_code)] // part of the theme API; not yet wired into the UI
     pub fn is_dark(&self) -> bool {
         match self {
             ThemeVariant::TokyoNightLight | ThemeVariant::GruvboxLight | ThemeVariant::SolarizedLight => false,
@@ -64,7 +65,10 @@ impl ThemeVariant {
     }
 }
 
-/// Comprehensive theme structure with all colors needed for the app
+/// Comprehensive theme structure with all colors needed for the app.
+// Several colors aren't consumed yet — the UI still uses the hardcoded
+// `TokyoNight` palette while the dynamic theme system is being wired in.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Theme {
     // Base colors
@@ -601,6 +605,7 @@ impl Default for ThemeManager {
 }
 
 impl ThemeManager {
+    #[allow(dead_code)] // pairs with Default; kept for explicit construction
     pub fn new(variant: ThemeVariant) -> Self {
         Self {
             current_theme: Theme::from_variant(variant),
@@ -631,6 +636,7 @@ impl ThemeManager {
         self.set_theme(variants[next_index]);
     }
 
+    #[allow(dead_code)] // pairs with next_theme(); not yet bound to a key
     pub fn previous_theme(&mut self) {
         let variants = ThemeVariant::all();
         let current_index = variants
@@ -645,6 +651,7 @@ impl ThemeManager {
         self.set_theme(variants[prev_index]);
     }
 
+    #[allow(dead_code)] // exposed for future light/dark-aware rendering
     pub fn is_dark(&self) -> bool {
         self.current_variant.is_dark()
     }

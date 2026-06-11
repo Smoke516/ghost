@@ -101,12 +101,6 @@ impl HealthMonitor {
     }
 
 
-    /// Connect to server interactively
-    /// Returns the PID of the spawned terminal process
-    pub async fn connect_to_server(&self, server: &ServerConnection) -> Result<u32, String> {
-        self.connect_to_server_with_mode(server, ConnectionMode::Auto).await
-    }
-    
     /// Connect to server with specific connection mode
     /// Returns the PID of the spawned terminal process
     pub async fn connect_to_server_with_mode(&self, server: &ServerConnection, mode: ConnectionMode) -> Result<u32, String> {

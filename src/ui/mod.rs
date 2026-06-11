@@ -44,6 +44,11 @@ pub fn ui(f: &mut Frame, app_state: &mut AppState) {
             render_main_view(f, main_chunks[1], app_state);
             render_server_form_popup(f, size, app_state);
         }
+        AppMode::ConfirmDiscard => {
+            render_main_view(f, main_chunks[1], app_state);
+            render_server_form_popup(f, size, app_state);
+            render_confirm_discard_popup(f, size);
+        }
     }
 
     // Render footer
@@ -458,6 +463,7 @@ fn render_footer(f: &mut Frame, area: Rect, app_state: &AppState) {
         AppMode::Analytics => "Press A, q, or Esc to return",
         AppMode::Sessions => "j/k: Navigate | d: Kill | r: Refresh | Enter: Info | S/q/Esc: Return",
         AppMode::ConfirmDelete(_) => "y: Confirm | n: Cancel",
+        AppMode::ConfirmDiscard => "y: Discard changes | n: Keep editing",
         AppMode::Connecting(_) => "Esc: Cancel connection",
         _ => "Esc: Return to main view",
     };
@@ -654,6 +660,36 @@ fn render_confirm_delete_popup(f: &mut Frame, area: Rect, app_state: &AppState, 
         .block(
             Block::default()
                 .title(" Confirm Delete ")
+                .title_style(Style::default().fg(TokyoNight::RED).add_modifier(Modifier::BOLD))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(TokyoNight::RED))
+                .style(Style::default().bg(TokyoNight::BG_POPUP)),
+        )
+        .style(Style::default().fg(TokyoNight::FG))
+        .alignment(Alignment::Center);
+
+    f.render_widget(confirm, popup_area);
+}
+
+fn render_confirm_discard_popup(f: &mut Frame, area: Rect) {
+    let popup_area = centered_rect(50, 20, area);
+
+    let text = vec![
+        Line::from(""),
+        Line::from(Span::styled("⚠️  Unsaved changes",
+            Style::default().fg(TokyoNight::RED).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from("Discard your changes?"),
+        Line::from(""),
+        Line::from(Span::styled("y: Discard | n: Keep editing",
+            Style::default().fg(TokyoNight::COMMENT))),
+    ];
+
+    f.render_widget(Clear, popup_area);
+    let confirm = Paragraph::new(text)
+        .block(
+            Block::default()
+                .title(" Discard Changes ")
                 .title_style(Style::default().fg(TokyoNight::RED).add_modifier(Modifier::BOLD))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(TokyoNight::RED))
