@@ -1,275 +1,195 @@
-# 👻 Ghost SSH Manager
+# 👻 Ghost
 
-A modern, cross-platform SSH connection manager with a beautiful terminal UI, security assessment, and multi-terminal support.
+A terminal SSH connection manager: keep your hosts in one list, see which are
+reachable, and open a session in one keystroke.
 
-![GitHub Release](https://img.shields.io/github/v/release/Smoke516/ghost?style=flat-square)
-![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
-## ✨ Features
+## What it does
 
-### 🚀 **Connection Management**
-- **Multi-platform support**: Linux, macOS, and Windows
-- **Multiple connection modes**: Auto, new terminal window, or direct connection
-- **Security assessment**: Automatic evaluation of SSH connection security
-- **Quick connect**: Number keys (1-9) for instant server connections
-- **Connection history**: Track and review your SSH activity
+- **One list of hosts**, imported straight from your `~/.ssh/config` or added by hand.
+- **Background reachability checks** so you can see what's up before you try it.
+- **One-keystroke connect** — `Enter`, or `1`–`9` for the first nine hosts.
+- **Opens in a new terminal window** when your emulator supports it, otherwise
+  hands the current terminal over to `ssh`.
+- **Search** across name, host, user, tag, and description.
+- **Twelve themes**, three panel layouts.
 
-### 🖥️ **Terminal Integration**
-- **Smart terminal detection**: Supports 10+ popular terminal emulators
-- **Ghostty**, **Alacritty**, **Kitty**, **Wezterm**, **GNOME Terminal**, **Konsole**, **XFCE Terminal**, **XTerm**, **Windows Terminal**, and more
-- **Warp Terminal compatible**: Optimized for modern terminal experiences
-- **Fallback handling**: Graceful degradation when terminals aren't available
+Ghost does not replace `ssh`. It builds an `ssh` command line and runs it, so
+your `~/.ssh/config`, agent, and known_hosts all behave exactly as usual.
 
-### 🎨 **Beautiful Interface**
-- **Modern TUI**: Clean, responsive terminal user interface
-- **Multiple themes**: Customizable color schemes
-- **Flexible layouts**: Single, two-panel, or three-panel views
-- **Real-time status**: Live connection health and session monitoring
-- **Contextual help**: Interactive tooltips and comprehensive help system
+## Install
 
-### 📊 **Analytics & Monitoring**
-- **Session tracking**: Monitor active SSH connections with PIDs and duration
-- **Performance metrics**: Latency monitoring and connection statistics
-- **Usage analytics**: Server usage patterns and connection insights
-- **Health monitoring**: Background server availability checks
+### From source
 
-### 🔒 **Security Features**
-- **Security assessment**: 🛡️ SECURE, ⚠️ VULNERABLE, ❓ UNKNOWN status indicators
-- **Multiple auth methods**: SSH keys, SSH agent, password, and interactive authentication
-- **Port security evaluation**: Non-standard ports marked as more secure
-- **Connection encryption**: All connections use standard SSH protocols
-
-## 📦 Installation
-
-### Quick Install (Recommended)
-
-#### Linux & macOS
-```bash
-curl -sSL https://raw.githubusercontent.com/Smoke516/ghost/main/install.sh | bash
-```
-
-#### Windows (PowerShell)
-```powershell
-iwr -useb https://raw.githubusercontent.com/Smoke516/ghost/main/install.ps1 | iex
-```
-
-### Manual Installation
-
-#### Using Cargo (All Platforms)
-```bash
-cargo install ghost
-```
-
-#### From Source
 ```bash
 git clone https://github.com/Smoke516/ghost.git
 cd ghost
 cargo install --path .
 ```
 
-#### Binary Releases
-Download pre-compiled binaries from the [Releases](https://github.com/Smoke516/ghost/releases) page:
-- **Linux**: `ghost-linux-x64.tar.gz`
-- **macOS**: `ghost-macos-x64.tar.gz` 
-- **Windows**: `ghost-windows-x64.zip`
+### From crates.io
 
-## 🚀 Quick Start
-
-### Launch Ghost
 ```bash
-# Auto connection mode (default)
+cargo install ghost-ssh   # the binary is named `ghost`
+```
+
+### Prebuilt binaries
+
+Grab one from [Releases](https://github.com/Smoke516/ghost/releases). Builds are
+published for Linux (x64, arm64), macOS (Intel, Apple Silicon), and Windows x64.
+
+## Getting started
+
+```bash
+# Import everything from ~/.ssh/config
+ghost --import-ssh-config --dry-run   # see what would be imported
+ghost --import-ssh-config             # actually import
+
+# Launch the TUI
 ghost
-
-# Force new terminal windows
-ghost --new-terminal
-
-# Direct connection mode (current terminal)
-ghost --direct
 ```
 
-### Basic Usage
-1. **Add a server**: Press `a` to add your first SSH server
-2. **Connect**: Press `Enter` or number keys (1-9) for quick connect
-3. **Manage**: Use `e` to edit, `d` to delete servers
-4. **Monitor**: Press `S` to view active sessions, `A` for analytics
+Inside the TUI, `i` runs the same import, `a` adds a host by hand, and `h` shows
+every keybinding.
 
-### Connection Modes
-- **Auto Mode**: Tries new terminal window, falls back to direct
-- **New Terminal**: Forces new window (fails if no terminal available)  
-- **Direct Mode**: Uses current terminal (Warp Terminal compatible)
+## Keys
 
-## 🎮 Controls
+| Key | Action |
+| --- | --- |
+| `j` `k` / `↑` `↓` | Move through the list |
+| `g` `G` / `PgUp` `PgDn` | Jump to ends / move by ten |
+| `Enter` | Connect to the selected host |
+| `1`–`9` | Quick connect by position |
+| `/` | Search (name, host, user, tag, description) |
+| `a` / `e` / `d` | Add / edit / delete a host |
+| `i` | Import from `~/.ssh/config` |
+| `r` | Re-check reachability of every host |
+| `f` | Show only reachable hosts |
+| `S` `A` `H` | Sessions / analytics / history |
+| `l` / `[` `]` | Cycle layout / resize panels |
+| `T` / `t` | Next theme / theme picker |
+| `Ctrl+X` | Terminate all tracked sessions |
+| `h` or `F1` | Help |
+| `q` / `Ctrl+C` | Quit |
 
-### Navigation
-- `j/k` or `↑/↓` - Navigate server list
-- `Enter` or `1-9` - Connect to server
-- `Esc` or `q` - Quit application
+`Esc` clears an active search; press it again to quit.
 
-### Server Management  
-- `a` - Add new server
-- `e` - Edit selected server
-- `d` - Delete selected server
-- `r` - Refresh server status & security assessment
+## Command line
 
-### Views & Features
-- `S` - Session manager (active SSH sessions)
-- `A` - Analytics dashboard (usage statistics)  
-- `H` - Connection history
-- `f` - Toggle online-only filter
-- `t/T` - Theme controls
-- `l` - Layout options
-- `?` - Contextual help
-- `h` - Full help menu
-
-### Session Management
-- `Ctrl+X` - Kill all active SSH sessions
-
-## 🔧 Configuration
-
-Ghost stores configuration in:
-- **Linux/macOS**: `~/.config/ghost/`
-- **Windows**: `%APPDATA%/ghost/`
-
-### Files
-- `config.toml` - Application settings and preferences
-- `servers.json` - Server definitions and connection details
-
-### Example Server Configuration
-```json
-{
-  "servers": {
-    "server-id": {
-      "name": "My Server",
-      "host": "example.com", 
-      "port": 2222,
-      "username": "user",
-      "auth_method": "PublicKey",
-      "key_path": "~/.ssh/id_rsa",
-      "description": "Production server",
-      "tags": ["production", "web"]
-    }
-  }
-}
+```
+ghost                            Launch the TUI
+ghost --new-terminal             Always open a new terminal window
+ghost --direct                   Always connect in the current terminal
+ghost --connection-mode MODE     auto | new-terminal | direct
+ghost --import-ssh-config [PATH] Import hosts and exit (default: ~/.ssh/config)
+ghost --import-ssh-config --dry-run    Show what would be imported
 ```
 
-## 🔒 Security
+### Connection modes
 
-Ghost prioritizes security in SSH connections:
+- **auto** (default) — open a new terminal window if a supported emulator is
+  found, otherwise fall back to direct.
+- **new-terminal** — always open a window; error out if none is available.
+- **direct** — tear down the TUI and hand this terminal to `ssh`, restoring the
+  TUI when the session ends. Use this inside multiplexers, or in terminals that
+  can't be told to launch a command (Warp).
 
-### Security Assessment
-- 🛡️ **SECURE**: SSH keys, SSH agent, non-standard ports
-- ⚠️ **VULNERABLE**: Password auth on standard port 22
-- ❓ **UNKNOWN**: Assessment pending or interactive auth
+Supported for new windows: Ghostty, Alacritty, Kitty, WezTerm, GNOME Terminal,
+Konsole, XFCE Terminal, xterm, Windows Terminal, macOS Terminal.
 
-### Best Practices
-- Use SSH key authentication when possible
-- Change default SSH port (22) to non-standard ports
-- Enable SSH agent for key management
-- Monitor connection attempts in the analytics dashboard
+> **Session tracking caveat.** GNOME Terminal and Konsole are client/server: the
+> process Ghost spawns hands off to a daemon and exits immediately, so there is
+> no PID worth tracking. Ghost detects this and skips session tracking for them
+> rather than showing a session that instantly disappears.
 
-## 🌍 Cross-Platform Support
+## Configuration
 
-### Linux
-- **Supported Distros**: Ubuntu, Debian, Fedora, Arch, Pop!_OS, and more
-- **Terminal Support**: GNOME Terminal, Konsole, XFCE Terminal, XTerm
-- **Modern Terminals**: Alacritty, Kitty, Wezterm, Ghostty
+Config lives at `~/.config/ghost/config.toml` (`%APPDATA%\ghost\config.toml` on
+Windows) and is written with `0600` permissions. Ghost rewrites it whenever you
+add, edit, or delete a host in the TUI; writes are atomic, so an interrupted
+save can't truncate your host list.
 
-### macOS  
-- **Versions**: macOS 10.15+ (Catalina and newer)
-- **Terminal Support**: Terminal.app, iTerm2, Alacritty, Kitty, Wezterm
-- **Apple Silicon**: Native support for M1/M2 Macs
+Every `[settings]` key is optional. See
+[`example-config.toml`](example-config.toml) for a documented sample.
 
-### Windows
-- **Versions**: Windows 10/11
-- **Terminal Support**: Windows Terminal, Command Prompt, PowerShell
-- **Modern Options**: Alacritty, Wezterm support
+```toml
+[settings]
+theme = "TokyoNightDark"
+refresh_interval = 30       # seconds between reachability checks
+show_only_online = false
 
-#### Windows Defender / Antivirus False Positives
-Some antivirus software may flag the Windows binary as suspicious. This is a common issue with Rust binaries and other compiled executables. If you encounter this:
+[servers.web]
+name = "Web"
+host = "web.example.com"
+port = 2222
+username = "deploy"
+description = "Frontend"
+tags = ["production"]
+timeout = 10                # ssh ConnectTimeout, optional
 
-1. **Add an exclusion** for the Ghost installation directory in Windows Defender
-2. **Verify the binary** using the provided checksums in releases
-3. **Build from source** if you prefer: `cargo install --git https://github.com/Smoke516/ghost`
-4. **Report false positives** to your antivirus vendor
-
-The binary is safe - you can verify this by checking the open source code and building it yourself.
-
-## 🛠️ Troubleshooting
-
-### Windows Installation Issues
-
-#### Antivirus False Positives
-If Windows Defender or other antivirus software flags the executable:
-
-1. **Temporary solution**: Add an exclusion for the Ghost installation directory
-2. **Verify authenticity**: Check the SHA256 checksums provided with each release
-3. **Build from source**: 
-   ```powershell
-   # Install Rust if you haven't already
-   winget install --id Rustlang.Rustup
-   
-   # Clone and build
-   git clone https://github.com/Smoke516/ghost.git
-   cd ghost
-   cargo build --release
-   ```
-
-#### PowerShell Execution Policy
-If the installation script fails with execution policy errors:
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+[servers.web.auth_method]
+type = "public_key"         # agent | public_key | password | interactive
+key_path = "~/.ssh/id_ed25519"
 ```
 
-### Linux/macOS Issues
+## Status column
 
-#### Permission Denied
-If you get permission denied when running ghost:
+```
+● online    ● offline    ◐ checking    ? not yet checked
+🔑 key or agent auth    ⚠ password auth    💬 keyboard-interactive
+```
+
+The auth icon reflects **your local connection config**, not the remote host's
+security posture. Ghost's reachability check is a TCP connect; it cannot and
+does not audit whether a server is patched or hardened. The icon exists so that
+password auth stands out against key auth in a long list.
+
+`Uptime` in the details panel is the share of Ghost's own reachability probes
+that succeeded — it is not the remote host's uptime.
+
+## Security notes
+
+- Ghost never stores passwords or key material. Public-key entries store a
+  *path*; authentication is performed entirely by `ssh`.
+- The `ssh` command line is assembled as discrete argv elements and executed
+  without a shell, so a hostname or username containing shell metacharacters
+  cannot be interpreted as a command. This is covered by tests.
+- The config file is written `0600` via an atomic
+  write-to-temp-then-rename.
+
+## Building and testing
+
 ```bash
-chmod +x ~/.local/bin/ghost
-```
-
-#### PATH Not Updated
-Add to your shell profile (~/.bashrc, ~/.zshrc):
-```bash
-export PATH="$PATH:$HOME/.local/bin"
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
-```bash
-git clone https://github.com/Smoke516/ghost.git
-cd ghost
-cargo build
-cargo run
-```
-
-### Running Tests
-```bash
+cargo build --release
 cargo test
-cargo clippy
-cargo fmt
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
 ```
 
-## 📄 License
+Minimum supported Rust version: 1.74.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Troubleshooting
 
-## 🙏 Acknowledgments
+**Nothing happens when I press Enter.** Your terminal emulator may not be
+detected. Run `ghost --direct` to connect in the current terminal instead.
 
-- Built with [Ratatui](https://github.com/ratatui-org/ratatui) for the terminal UI
-- Uses [Crossterm](https://github.com/crossterm-rs/crossterm) for cross-platform terminal handling
-- Inspired by modern SSH management tools and terminal applications
+**Everything shows as offline.** Ghost's check is a plain TCP connect to
+`host:port`. A host behind a bastion, using port knocking, or dropping
+unsolicited connections will read as offline but still connect fine — press
+Enter and let `ssh` be the judge.
 
-## 📞 Support
+**Ghostty prints OSC warnings.** Add `log-level = error` to
+`~/.config/ghostty/config`.
 
-- **Issues**: [GitHub Issues](https://github.com/Smoke516/ghost/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Smoke516/ghost/discussions)
-- **Documentation**: [Wiki](https://github.com/Smoke516/ghost/wiki)
+**Windows Defender flags the binary.** A common false positive for unsigned Rust
+binaries. Verify against the release checksums, or build from source.
 
----
+## Contributing
 
-**Made with ❤️ for the terminal-loving community**
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

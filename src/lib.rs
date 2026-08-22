@@ -1,8 +1,9 @@
 pub mod config;
+pub mod forms;
+pub mod health;
 pub mod models;
 pub mod ssh;
-pub mod health;
-pub mod colors;
-pub mod forms;
-pub mod ui;
+pub mod ssh_config;
 pub mod themes;
+pub mod tui;
+pub mod ui;

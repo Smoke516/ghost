@@ -45,10 +45,9 @@ detect_platform() {
             OS="linux"
             ;;
         darwin*)
+            # macOS builds (Intel and Apple Silicon) are published as of the
+            # arm64 release matrix; no need to bail out to a source build.
             OS="macos"
-            warn "macOS binaries are not yet available in releases"
-            warn "Please build from source: cargo install --git https://github.com/$REPO"
-            exit 1
             ;;
         *)
             error "Unsupported operating system: $os"

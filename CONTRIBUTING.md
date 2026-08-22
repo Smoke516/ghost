@@ -109,17 +109,24 @@ Thank you for your interest in contributing to Ghost SSH Manager! We welcome con
 
 ```
 src/
-├── main.rs          # Application entry point
-├── app.rs           # Main application logic and event handling  
-├── colors.rs        # Tokyo Night color palette
-├── models.rs        # Data structures and state management
+├── main.rs          # CLI parsing and entry point
+├── app.rs           # Event loop, key handling, application actions
+├── tui.rs           # Terminal setup/teardown and the panic hook
+├── models.rs        # Data structures, app state, process helpers
+├── config.rs        # TOML config load/save (atomic, 0600)
+├── forms.rs         # Add/edit form state and validation
+├── health.rs        # Background reachability monitor
+├── ssh.rs           # ssh command construction and terminal launching
+├── ssh_config.rs    # ~/.ssh/config parser for imports
+├── themes.rs        # Theme definitions
 └── ui/
-    └── mod.rs       # Terminal UI components and rendering
+    └── mod.rs       # All rendering
 ```
 
 ## 🎨 UI/UX Guidelines
 
-- Maintain consistency with the Tokyo Night theme
+- Take colors from `app_state.theme_manager.current_theme()` — never hardcode a
+  palette. All twelve themes must work.
 - Ensure responsive design across terminal sizes
 - Provide clear visual feedback for user actions
 - Include helpful tooltips and contextual help

@@ -4,7 +4,8 @@
 *.pdb
 
 # Cargo files
-Cargo.lock
+# Cargo.lock IS committed: ghost ships as a binary, so a pinned dependency
+# graph is what makes builds reproducible (and what the CI cache keys on).
 .cargo/
 
 # IDE and editor files

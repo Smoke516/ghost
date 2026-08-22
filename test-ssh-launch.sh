@@ -1,41 +1,58 @@
 #!/bin/bash
+#
+# Shows the exact command Ghost builds when you connect, and checks that your
+# terminal emulator can run it.
+#
+# Ghost never assembles a shell string. It passes `ssh` and each of its options
+# as separate argv elements, so a hostname or username containing shell
+# metacharacters cannot be interpreted as a command. This script mirrors that.
 
-echo "🧪 Testing SSH command launching with Ghostty..."
-echo "This will simulate what Ghost does when connecting to a server"
+set -u
+
+HOST="${1:-example.com}"
+USER_NAME="${2:-user}"
+PORT="${3:-22}"
+
+echo "🧪 Ghost SSH launch check"
 echo
 
-# Test the exact command format that Ghost uses
-echo "1. Testing basic SSH command format:"
-echo "   ghostty -e zsh -c \"ssh -p 22 user@example.com\""
+echo "Ghost builds this argv (note: no shell involved):"
+printf '   ssh'
+for arg in -p "$PORT" -o ServerAliveInterval=60 -o ServerAliveCountMax=3 \
+           -o ConnectTimeout=10 -o BatchMode=no "${USER_NAME}@${HOST}"; do
+    printf ' %q' "$arg"
+done
+echo
 echo
 
-echo "2. Testing with public key:"
-echo "   ghostty -e zsh -c \"ssh -p 22 -i ~/.ssh/id_rsa user@example.com\""
-echo
+echo "Terminal emulators Ghost can launch a session in:"
+found=0
+for entry in \
+    "ghostty:ghostty -e ssh …" \
+    "alacritty:alacritty -e ssh …" \
+    "kitty:kitty ssh …" \
+    "wezterm:wezterm start -- ssh …" \
+    "gnome-terminal:gnome-terminal -- ssh …" \
+    "konsole:konsole -e ssh …" \
+    "xfce4-terminal:xfce4-terminal -x ssh …" \
+    "xterm:xterm -e ssh …"
+do
+    cmd="${entry%%:*}"
+    form="${entry#*:}"
+    if command -v "$cmd" >/dev/null 2>&1; then
+        echo "   ✅ $cmd    →  $form"
+        found=$((found + 1))
+    fi
+done
 
-echo "3. Testing current Ghostty executable:"
-if command -v ghostty >/dev/null 2>&1; then
-    echo "   ✅ Ghostty found: $(which ghostty)"
-    echo "   Version: $(ghostty --version 2>/dev/null || echo 'version check failed')"
-    echo
-    
-    echo "4. Testing manual command (won't actually connect):"
-    echo "   This should open Ghostty with an SSH session..."
-    echo "   Press Ctrl+C to cancel if it tries to connect"
-    echo
-    
-    # Test with a dummy command that won't actually connect
-    echo "   ghostty -e zsh -c \"echo 'SSH session would start here'; sleep 3\""
-    echo "   Running in 3 seconds... (Press Ctrl+C to cancel)"
-    sleep 3
-    
-    # Run the test
-    ghostty -e zsh -c "echo 'SSH session would start here: ssh -p 22 user@example.com'; echo 'Ghost would run this command in a real connection'; sleep 5; echo 'Test complete!'"
+echo
+if [ "$found" -eq 0 ]; then
+    echo "   ⚠️  None found. Ghost will fall back to direct mode, connecting in"
+    echo "      the current terminal. Force it explicitly with: ghost --direct"
 else
-    echo "   ❌ Ghostty not found in PATH"
-    echo "   Make sure Ghostty is installed and accessible"
+    echo "   $found supported terminal(s) available."
 fi
 
 echo
-echo "🔍 If Ghostty opened with the test message, then Ghost should work!"
-echo "   The actual SSH connection will replace the test message"
+echo "Note: gnome-terminal and konsole hand off to a background daemon and exit"
+echo "immediately, so Ghost does not track sessions opened through them."

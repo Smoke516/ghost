@@ -2,10 +2,10 @@ use crate::models::{AuthStrength, HealthStatus, ServerConnection};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::collections::HashMap;
+use std::process::Command;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use std::process::Command;
 
 /// Available terminal emulators for spawning SSH sessions
 #[derive(Debug, Clone, PartialEq)]
@@ -51,45 +51,43 @@ impl AvailableTerminal {
         }
     }
 
-    /// Check if this terminal is available on the system
+    /// Check if this terminal is available on the system.
+    ///
+    /// Uses the `which` crate to walk PATH in-process. The previous version
+    /// shelled out to `which`/`where`, forking a process per candidate
+    /// terminal on every detection pass.
     pub fn is_available(&self) -> bool {
         match self.command_name() {
             Some(cmd) => {
-                // Special case for macOS Terminal
+                // macOS Terminal is always present on macOS and never elsewhere;
+                // `osascript` existing says nothing useful on its own.
                 if *self == AvailableTerminal::MacTerminal {
                     return cfg!(target_os = "macos");
                 }
-                
-                // Special case for Warp - check if it's running rather than command availability
+
+                // Warp can't be launched with a command to run, so it is never
+                // a valid spawn target regardless of whether it's installed.
                 if *self == AvailableTerminal::Warp {
-                    // Check if Warp is currently running by looking for the process
-                    if let Ok(output) = Command::new("pgrep").arg("-f").arg("warp-terminal").output() {
-                        return output.status.success();
-                    }
                     return false;
                 }
-                
-                // Check if command exists in PATH using cross-platform approach
-                #[cfg(unix)]
-                {
-                    Command::new("which")
-                        .arg(cmd)
-                        .output()
-                        .map(|output| output.status.success())
-                        .unwrap_or(false)
-                }
-                
-                #[cfg(windows)]
-                {
-                    Command::new("where")
-                        .arg(cmd)
-                        .output()
-                        .map(|output| output.status.success())
-                        .unwrap_or(false)
-                }
-            },
+
+                which::which(cmd).is_ok()
+            }
             None => false,
         }
+    }
+
+    /// Whether this terminal reliably reports the PID of the window it opens.
+    ///
+    /// GNOME Terminal and Konsole are client/server: the process we spawn hands
+    /// the request to an already-running daemon and exits immediately. The PID
+    /// we capture is therefore dead within milliseconds, which makes session
+    /// tracking (and "kill session") meaningless for them.
+    pub fn reports_stable_pid(&self) -> bool {
+        !matches!(
+            self,
+            AvailableTerminal::GnomeTerminal | AvailableTerminal::Konsole
+        )
     }
 
     /// Wrap a program and its arguments into this terminal's argv form, WITHOUT
@@ -159,6 +157,13 @@ impl AvailableTerminal {
     }
 }
 
+/// Fallback ssh ConnectTimeout when a server doesn't specify one.
+pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
+
+/// Upper bound on how long a background health probe may take. Independent of
+/// the ssh connect timeout so one slow host can't stall the whole refresh.
+const HEALTH_CHECK_TIMEOUT_SECS: u64 = 5;
+
 /// Build the argument vector passed to `ssh` (everything after the `ssh`
 /// program name) as separate argv elements — never assembled into a shell
 /// string. Shared by both the direct and new-terminal launch paths.
@@ -187,11 +192,19 @@ fn build_ssh_args(server: &ServerConnection) -> Vec<String> {
         }
     }
 
+    // Honour the server's configured connect timeout, falling back to a sane
+    // default. This field used to be stored and then silently ignored.
+    let connect_timeout = server.timeout.unwrap_or(DEFAULT_CONNECT_TIMEOUT_SECS);
+
     args.extend([
-        "-o".to_string(), "ServerAliveInterval=60".to_string(),
-        "-o".to_string(), "ServerAliveCountMax=3".to_string(),
-        "-o".to_string(), "ConnectTimeout=10".to_string(),
-        "-o".to_string(), "BatchMode=no".to_string(),
+        "-o".to_string(),
+        "ServerAliveInterval=60".to_string(),
+        "-o".to_string(),
+        "ServerAliveCountMax=3".to_string(),
+        "-o".to_string(),
+        format!("ConnectTimeout={}", connect_timeout),
+        "-o".to_string(),
+        "BatchMode=no".to_string(),
     ]);
 
     args.push(format!("{}@{}", server.username, server.host));
@@ -218,8 +231,18 @@ fn applescript_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Detect the best available terminal emulator
+/// Detect the best available terminal emulator, caching the answer.
+///
+/// Detection touches the filesystem for every candidate; the set of installed
+/// terminals does not change during a session, so probing once is enough.
 pub fn detect_available_terminal() -> AvailableTerminal {
+    static CACHED: std::sync::OnceLock<AvailableTerminal> = std::sync::OnceLock::new();
+    CACHED
+        .get_or_init(detect_available_terminal_uncached)
+        .clone()
+}
+
+fn detect_available_terminal_uncached() -> AvailableTerminal {
     // Check environment variables first for better detection
     if let Ok(term_program) = std::env::var("TERM_PROGRAM") {
         match term_program.as_str() {
@@ -228,21 +251,18 @@ pub fn detect_available_terminal() -> AvailableTerminal {
             "kitty" => return AvailableTerminal::Kitty,
             "WezTerm" => return AvailableTerminal::Wezterm,
             "ghostty" => return AvailableTerminal::Ghostty,
-            "WarpTerminal" => {
-                // Warp Terminal doesn't support spawning new windows programmatically
-                eprintln!("⚠️  Warp Terminal detected but doesn't support new window spawning.");
-                eprintln!("    Falling back to direct connection mode.");
-                return AvailableTerminal::None;
-            },
+            // Warp can't be told to run a command in a new window, so it is
+            // not a usable spawn target — fall through to direct mode. (Never
+            // print here: this runs inside the TUI's alternate screen.)
+            "WarpTerminal" => return AvailableTerminal::None,
             _ => {}
         }
     }
 
     // Check for Windows Terminal
-    if cfg!(target_os = "windows")
-        && AvailableTerminal::WindowsTerminal.is_available() {
-            return AvailableTerminal::WindowsTerminal;
-        }
+    if cfg!(target_os = "windows") && AvailableTerminal::WindowsTerminal.is_available() {
+        return AvailableTerminal::WindowsTerminal;
+    }
 
     // Try terminals in order of preference (excluding Warp since it doesn't work)
     let terminals = vec![
@@ -285,14 +305,25 @@ impl SSHManager {
     }
 
     /// Perform a simple connectivity test with security assessment
-    pub async fn quick_health_check(&self, server: &ServerConnection) -> Result<ConnectionTestResult> {
+    pub async fn quick_health_check(
+        &self,
+        server: &ServerConnection,
+    ) -> Result<ConnectionTestResult> {
         let start_time = Instant::now();
         let address = format!("{}:{}", server.host, server.port);
-        
+
+        // Cap the probe at the server's timeout, but never let a generous
+        // per-server ssh timeout stall the health sweep.
+        let probe_secs = server
+            .timeout
+            .unwrap_or(HEALTH_CHECK_TIMEOUT_SECS)
+            .min(HEALTH_CHECK_TIMEOUT_SECS);
+
         let result = timeout(
-            Duration::from_secs(5), // Quick timeout for health checks
-            TcpStream::connect(&address)
-        ).await;
+            Duration::from_secs(probe_secs),
+            TcpStream::connect(&address),
+        )
+        .await;
 
         let latency = start_time.elapsed();
 
@@ -306,7 +337,7 @@ impl SSHManager {
                     latency: Some(latency),
                     error_message: None,
                 })
-            },
+            }
             Ok(Err(e)) => Ok(ConnectionTestResult {
                 status: HealthStatus::Offline,
                 auth_strength: AuthStrength::Unknown,
@@ -337,7 +368,11 @@ impl SSHManager {
     }
 
     /// Connect to a server with a specific connection mode
-    pub async fn connect_with_mode(&mut self, server: &ServerConnection, mode: ConnectionMode) -> Result<u32> {
+    pub async fn connect_with_mode(
+        &mut self,
+        server: &ServerConnection,
+        mode: ConnectionMode,
+    ) -> Result<u32> {
         // We deliberately do NOT pre-gate on a raw TCP reachability probe.
         // Hosts behind a bastion/ProxyJump, with port-knocking, or that drop
         // port scans are perfectly connectable via ssh even when a direct TCP
@@ -350,7 +385,8 @@ impl SSHManager {
                 // Try a new terminal first, fall back to direct if none available.
                 let available_terminal = detect_available_terminal();
                 if available_terminal != AvailableTerminal::None {
-                    self.launch_ssh_in_new_terminal(server, available_terminal).await
+                    self.launch_ssh_in_new_terminal(server, available_terminal)
+                        .await
                 } else {
                     self.launch_ssh_session(server).await
                 }
@@ -358,7 +394,8 @@ impl SSHManager {
             ConnectionMode::NewTerminal => {
                 let available_terminal = detect_available_terminal();
                 if available_terminal != AvailableTerminal::None {
-                    self.launch_ssh_in_new_terminal(server, available_terminal).await
+                    self.launch_ssh_in_new_terminal(server, available_terminal)
+                        .await
                 } else {
                     Err(anyhow::anyhow!("No terminal emulator available for new terminal mode. Available terminals: Ghostty, Alacritty, Kitty, Wezterm, GNOME Terminal, Konsole, XFCE Terminal, XTerm"))
                 }
@@ -366,14 +403,18 @@ impl SSHManager {
             ConnectionMode::Direct => self.launch_ssh_session(server).await,
         }
     }
-    
+
     /// Launch SSH session in a new terminal window.
     ///
     /// The ssh invocation is assembled as a vector of discrete argv elements
     /// (`build_ssh_args`) and wrapped into the terminal's launch form via
     /// `wrap_command`, so no untrusted server field is ever interpolated into a
     /// shell command string.
-    async fn launch_ssh_in_new_terminal(&self, server: &ServerConnection, terminal: AvailableTerminal) -> Result<u32> {
+    async fn launch_ssh_in_new_terminal(
+        &self,
+        server: &ServerConnection,
+        terminal: AvailableTerminal,
+    ) -> Result<u32> {
         let cmd_name = terminal
             .command_name()
             .ok_or_else(|| anyhow::anyhow!("Invalid terminal type"))?;
@@ -397,6 +438,10 @@ impl SSHManager {
 
         let pid = child.id();
 
+        // For client/server terminals this PID belongs to a thin client that
+        // exits at once; the caller uses `reports_stable_pid` to decide whether
+        // the resulting "session" is worth tracking.
+
         // Reap the terminal in the background when it eventually exits. This lets
         // the window run independently of Ghost without leaking a zombie process
         // (the previous `mem::forget` left the child unwaited-for).
@@ -410,7 +455,7 @@ impl SSHManager {
 
         Ok(pid)
     }
-    
+
     /// Launch SSH session directly in the current terminal.
     async fn launch_ssh_session(&self, server: &ServerConnection) -> Result<u32> {
         // Same discrete-argv construction as the new-terminal path: ssh receives
@@ -421,27 +466,28 @@ impl SSHManager {
         // Execute SSH directly in the current terminal
         self.execute_ssh_direct(ssh_cmd, server).await
     }
-    
-    /// Execute SSH directly in the current terminal
-    async fn execute_ssh_direct(&self, mut ssh_cmd: std::process::Command, server: &ServerConnection) -> Result<u32> {
-        use crossterm::terminal::{disable_raw_mode, enable_raw_mode, LeaveAlternateScreen, EnterAlternateScreen};
-        use crossterm::ExecutableCommand;
+
+    /// Execute SSH directly in the current terminal.
+    ///
+    /// Ghost's TUI is fully torn down first and rebuilt afterwards, so ssh gets
+    /// a normal terminal (needed for password prompts, host-key confirmation
+    /// and full-screen remote programs).
+    async fn execute_ssh_direct(
+        &self,
+        mut ssh_cmd: std::process::Command,
+        server: &ServerConnection,
+    ) -> Result<u32> {
         use std::io::stdout;
-        
-        // Suspend Ghost's TUI - disable raw mode and leave alternate screen
-        if disable_raw_mode().is_err() {
-            eprintln!("Warning: Failed to disable raw mode");
-        }
-        if stdout().execute(LeaveAlternateScreen).is_err() {
-            eprintln!("Warning: Failed to leave alternate screen");
-        }
-        
+
+        // Suspend Ghost's TUI.
+        crate::tui::restore();
+
         // Clear screen and show connection status
         println!("\x1b[2J\x1b[H"); // Clear screen and move cursor to top
         println!("🔗 Connecting to {}...", server.name);
         println!("   Host: {}:{}", server.host, server.port);
         println!("   User: {}", server.username);
-        
+
         match &server.auth_method {
             crate::models::AuthMethod::PublicKey { key_path } => {
                 let expanded_path = shellexpand::tilde(key_path);
@@ -457,16 +503,16 @@ impl SSHManager {
                 println!("   Auth: Interactive");
             }
         }
-        
+
         println!("\nPress Ctrl+C to disconnect and return to Ghost\n");
-        
+
         // Execute SSH command with proper stdio inheritance
         ssh_cmd.stdin(std::process::Stdio::inherit());
         ssh_cmd.stdout(std::process::Stdio::inherit());
         ssh_cmd.stderr(std::process::Stdio::inherit());
-        
+
         let status = ssh_cmd.status();
-        
+
         let result = match status {
             Ok(exit_status) => {
                 println!("\n{}", "=".repeat(50));
@@ -474,51 +520,52 @@ impl SSHManager {
                     println!("✅ Disconnected from {} successfully", server.name);
                 } else {
                     let code = exit_status.code().unwrap_or(-1);
-                    println!("❌ Connection to {} ended with exit code: {}", server.name, code);
+                    println!(
+                        "❌ Connection to {} ended with exit code: {}",
+                        server.name, code
+                    );
                 }
                 println!("Press any key to return to Ghost...");
-                
+
                 // Wait for user input before returning to Ghost UI
                 use std::io::{self, BufRead};
                 let stdin = io::stdin();
                 let _ = stdin.lock().read_line(&mut String::new());
-                
+
                 // Return a dummy PID since we're not spawning a separate process
                 Ok(std::process::id())
             }
             Err(e) => {
                 println!("\n❌ Failed to execute SSH command: {}", e);
                 println!("Press any key to return to Ghost...");
-                
+
                 use std::io::{self, BufRead};
                 let stdin = io::stdin();
                 let _ = stdin.lock().read_line(&mut String::new());
-                
+
                 Err(anyhow::anyhow!("SSH execution failed: {}", e))
             }
         };
-        
-        // Restore Ghost's TUI - re-enable raw mode and enter alternate screen
-        if stdout().execute(EnterAlternateScreen).is_err() {
-            eprintln!("Warning: Failed to enter alternate screen");
-        }
-        if enable_raw_mode().is_err() {
-            eprintln!("Warning: Failed to enable raw mode");
-        }
-        
-        // Force terminal to clear and prepare for Ghost's redraw
-        use crossterm::terminal::Clear;
-        use crossterm::terminal::ClearType;
-        use crossterm::cursor::MoveTo;
+
+        // Rebuild Ghost's TUI. The caller forces a full redraw on the next
+        // frame, so we only need the terminal modes back.
+        use crossterm::cursor::{Hide, MoveTo};
+        use crossterm::execute;
+        use crossterm::terminal::{enable_raw_mode, Clear, ClearType, EnterAlternateScreen};
         use std::io::Write;
-        let _ = stdout().execute(Clear(ClearType::All));
-        let _ = stdout().execute(MoveTo(0, 0));
-        let _ = stdout().flush(); // Ensure all terminal commands are executed
-        
+
+        let _ = enable_raw_mode();
+        let _ = execute!(
+            stdout(),
+            EnterAlternateScreen,
+            Clear(ClearType::All),
+            MoveTo(0, 0),
+            Hide
+        );
+        let _ = stdout().flush();
+
         result
     }
-
-
 }
 
 /// Result of a connection test
@@ -530,32 +577,36 @@ pub struct ConnectionTestResult {
     pub error_message: Option<String>,
 }
 
-
 impl ConnectionTestResult {
+    /// Fold a health-probe result into a server's runtime state.
+    ///
+    /// Probes update the *probe* counters only. `connection_count` /
+    /// `failed_attempts` belong to sessions the user actually launched — the
+    /// old code incremented them here too, so "Total Connections" climbed by
+    /// itself every 30 seconds and the analytics view was meaningless.
     pub fn update_server_stats(&self, server: &mut ServerConnection) {
         server.health_status = self.status.clone();
         server.auth_strength = self.auth_strength.clone();
         // Surface the latest health-check error (None on success clears it).
         server.last_error = self.error_message.clone();
-        
-        // Update connection stats
+
         server.stats.latency = self.latency;
-        server.stats.last_connected = Some(Utc::now());
-        
+
         match self.status {
             HealthStatus::Online => {
-                server.stats.connection_count += 1;
-                // Simple uptime calculation (this would be more sophisticated in a real app)
-                server.stats.uptime_percentage = 
-                    (server.stats.connection_count as f32 / (server.stats.connection_count + server.stats.failed_attempts) as f32) * 100.0;
+                server.stats.probe_success += 1;
+                server.stats.last_seen_online = Some(Utc::now());
+                // Only successful probes carry a meaningful round-trip time;
+                // a timeout's "latency" is just the timeout value.
+                if let Some(latency) = self.latency {
+                    server.stats.push_latency(latency);
+                }
             }
-            HealthStatus::Offline => {
-                server.stats.failed_attempts += 1;
-                server.stats.uptime_percentage = 
-                    (server.stats.connection_count as f32 / (server.stats.connection_count + server.stats.failed_attempts) as f32) * 100.0;
-            }
+            HealthStatus::Offline => server.stats.probe_failure += 1,
             _ => {}
         }
+
+        server.stats.recompute_uptime();
     }
 }
 

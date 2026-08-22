@@ -1,9 +1,25 @@
+# Ghost configuration. Every key under [settings] is optional and falls back to
+# the value shown here, so you can delete anything you don't want to override.
+#
+# Location: ~/.config/ghost/config.toml  (Linux/macOS)
+#           %APPDATA%\ghost\config.toml  (Windows)
+#
+# Ghost rewrites this file when you add, edit, or delete a server in the TUI.
+
 [settings]
-theme = "tokyo-night"
+# One of: TokyoNightDark, TokyoNightLight, DraculaDark, GruvboxDark,
+# GruvboxLight, NordDark, SolarizedDark, SolarizedLight, MonokaiDark,
+# CatppuccinDark, OneDark, Ayu
+theme = "TokyoNightDark"
+# Seconds between background reachability checks.
 refresh_interval = 30
 show_only_online = false
-animation_speed = 1.0
+show_tooltips = true
+panel_layout = "three"        # single | two | three
 
+# Each [servers.<key>] block is one connection. The key is the internal id;
+# name it whatever you like. auth_method.type is one of:
+#   agent | public_key | password | interactive
 [servers.production_web]
 name = "Production Web Server"
 host = "prod.example.com"
@@ -11,11 +27,12 @@ port = 22
 username = "deploy"
 description = "Main production web server"
 tags = ["production", "web", "critical"]
+# ssh ConnectTimeout in seconds; omit to use the default (10).
 timeout = 10
 
 [servers.production_web.auth_method]
 type = "public_key"
-key_path = "~/.ssh/id_rsa"
+key_path = "~/.ssh/id_ed25519"
 
 [servers.dev_local]
 name = "Development Box"
