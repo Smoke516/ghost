@@ -673,9 +673,10 @@ pub struct AppState {
     /// rows highlighted something off-screen.
     pub server_list_state: ListState,
     pub session_list_state: ListState,
-    pub topology_list_state: ListState,
     /// Cursor into the topology view's selectable rows.
     pub topology_selected: usize,
+    /// First visible row of the topology view.
+    pub topology_offset: usize,
     /// The in-progress search string while in `AppMode::Search`.
     pub search_input: InputField,
     /// Path of the config file, shown in the metrics panel.
@@ -972,8 +973,8 @@ impl Default for AppState {
             server_form: None,
             server_list_state: ListState::default(),
             session_list_state: ListState::default(),
-            topology_list_state: ListState::default(),
             topology_selected: 0,
+            topology_offset: 0,
             search_input: InputField::new("Search", "name, host, user, tag…"),
             config_path: String::new(),
             help_scroll: 0,

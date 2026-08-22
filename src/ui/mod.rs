@@ -899,6 +899,7 @@ fn render_help_popup(f: &mut Frame, area: Rect, app_state: &AppState) {
         Line::from("  f               Toggle online-only filter"),
         Line::from(""),
         heading("VIEWS"),
+        Line::from("  m               Topology — hosts grouped by bastion"),
         Line::from("  S               Active SSH sessions"),
         Line::from("  A               Analytics"),
         Line::from("  H               Connection history"),
@@ -2654,117 +2655,188 @@ fn render_topology_view(f: &mut Frame, area: Rect, app_state: &mut AppState) {
         return;
     }
 
+    // Split off a path panel when there is room; below that width the tree
+    // itself would get too cramped to read.
+    let show_path = area.width >= 90;
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(if show_path {
+            vec![Constraint::Min(46), Constraint::Length(34)]
+        } else {
+            vec![Constraint::Percentage(100)]
+        })
+        .split(area);
+
     let cursor = app_state
         .topology_selected
         .min(selectable.len().saturating_sub(1));
     let selected_row = selectable.get(cursor).copied();
 
-    // Width of the name column, so the status columns line up.
-    let name_width = 26usize;
+    let tree_area = chunks[0];
+    let inner_height = tree_area.height.saturating_sub(2) as usize;
+    // Only spend a row on the pinned heading when the list can actually
+    // scroll; on a short list it would just be a blank line at the top.
+    let scrollable = rows.len() > inner_height;
+    let visible = if scrollable {
+        inner_height.saturating_sub(1).max(1)
+    } else {
+        inner_height.max(1)
+    };
 
-    let items: Vec<ListItem> = rows
-        .iter()
-        .map(|row| {
-            let selected = Some(row) == selected_row.map(|i| &rows[i]);
-            let base = if selected {
-                Style::default()
-                    .bg(theme.bg_highlight)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
+    // Scroll so the selection stays on screen, with the window clamped to the
+    // end of the list so the last page isn't half empty.
+    let anchor = selected_row.unwrap_or(0);
+    let max_offset = rows.len().saturating_sub(visible);
+    let offset = if anchor < app_state.topology_offset {
+        anchor
+    } else if anchor >= app_state.topology_offset + visible {
+        anchor + 1 - visible
+    } else {
+        app_state.topology_offset
+    }
+    .min(max_offset);
+    app_state.topology_offset = offset;
 
-            match row {
-                crate::topology::Row::Spacer => ListItem::new(Line::from("")),
+    // Which group governs the selection, and has it scrolled out of view? If
+    // so it gets pinned, because "which bastion am I under" is the entire point
+    // of this view and losing it to a scroll defeats the exercise.
+    let governing = selected_row.and_then(|r| crate::topology::group_of(&rows, r));
+    let pinned = governing.filter(|&g| g < offset);
 
-                crate::topology::Row::Group {
-                    label,
-                    server,
-                    children,
-                    is_bastion,
-                } => {
-                    let mut spans = vec![Span::styled(
-                        format!("{:<width$}", label, width = name_width),
-                        base.fg(theme.theme_primary).add_modifier(Modifier::BOLD),
-                    )];
-                    match server.map(|i| connections[i]) {
-                        Some(conn) => {
-                            spans.push(Span::styled(
-                                conn.health_status.symbol(),
-                                base.fg(latency_color(conn, theme)),
-                            ));
-                            spans.push(Span::styled(
-                                format!(" {:>7}", format_latency(conn)),
-                                base.fg(theme.comment),
-                            ));
-                        }
-                        // A bastion Ghost has no entry for: it routes traffic
-                        // but cannot be probed or connected to. The synthetic
-                        // "Direct" heading is neither, so it says nothing.
-                        None if *is_bastion => {
-                            spans.push(Span::styled("· not configured", base.fg(theme.comment)))
-                        }
-                        None => {}
-                    }
-                    spans.push(Span::styled(
-                        if *is_bastion {
-                            format!("   {} behind", children)
-                        } else {
-                            format!("   {} host(s)", children)
-                        },
-                        base.fg(theme.comment),
-                    ));
-                    ListItem::new(Line::from(spans))
-                }
+    let name_width = 24usize;
 
-                crate::topology::Row::Host { server, last } => {
-                    let conn = connections[*server];
-                    let elbow = if *last { "└── " } else { "├── " };
-                    let symbol =
-                        if matches!(conn.health_status, crate::models::HealthStatus::Connecting) {
-                            globe
-                        } else {
-                            conn.health_status.symbol()
-                        };
+    let render_row = |row: &crate::topology::Row, selected: bool| -> Line<'static> {
+        let base = if selected {
+            Style::default()
+                .bg(theme.bg_highlight)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
 
-                    let label = format!("{}{}", elbow, conn.name);
-                    let mut spans = vec![
-                        Span::styled(
-                            format!(
-                                "{:<width$}",
-                                truncate(&label, name_width),
-                                width = name_width
-                            ),
-                            base.fg(if selected {
-                                theme.theme_primary
-                            } else {
-                                theme.fg
-                            }),
-                        ),
-                        Span::styled(symbol, base.fg(latency_color(conn, theme))),
-                        Span::styled(
+        match row {
+            crate::topology::Row::Spacer => Line::from(""),
+
+            crate::topology::Row::Group {
+                label,
+                server,
+                children,
+                is_bastion,
+            } => {
+                let mut spans = vec![Span::styled(
+                    format!(
+                        "{:<width$}",
+                        truncate(label, name_width),
+                        width = name_width
+                    ),
+                    base.fg(theme.theme_primary).add_modifier(Modifier::BOLD),
+                )];
+                match server.map(|i| connections[i]) {
+                    Some(conn) => {
+                        spans.push(Span::styled(
+                            conn.health_status.symbol(),
+                            base.fg(latency_color(conn, theme)),
+                        ));
+                        spans.push(Span::styled(
                             format!(" {:>7}", format_latency(conn)),
                             base.fg(theme.comment),
-                        ),
-                        Span::styled(
-                            format!("   {}", conn.connection_string()),
-                            base.fg(theme.comment),
-                        ),
-                    ];
-                    if conn.has_active_sessions() {
-                        spans.push(Span::styled(
-                            format!(" [{}]", conn.session_count()),
-                            base.fg(theme.green).add_modifier(Modifier::BOLD),
                         ));
                     }
-                    ListItem::new(Line::from(spans))
+                    // A bastion Ghost has no entry for: it routes traffic but
+                    // cannot be probed or connected to. The synthetic "Direct"
+                    // heading is neither, so it says nothing.
+                    None if *is_bastion => {
+                        spans.push(Span::styled("· not configured", base.fg(theme.comment)))
+                    }
+                    None => {}
                 }
+                spans.push(Span::styled(
+                    if *is_bastion {
+                        format!("   {} behind", children)
+                    } else {
+                        format!("   {} host(s)", children)
+                    },
+                    base.fg(theme.comment),
+                ));
+                Line::from(spans)
             }
-        })
-        .collect();
 
-    let title = format!(" Topology — {} host(s) ", connections.len());
-    let list = List::new(items).block(
+            crate::topology::Row::Host { server, last } => {
+                let conn = connections[*server];
+                let elbow = if *last { "└── " } else { "├── " };
+                let symbol =
+                    if matches!(conn.health_status, crate::models::HealthStatus::Connecting) {
+                        globe
+                    } else {
+                        conn.health_status.symbol()
+                    };
+
+                let label = format!("{}{}", elbow, conn.name);
+                let mut spans = vec![
+                    Span::styled(
+                        format!(
+                            "{:<width$}",
+                            truncate(&label, name_width),
+                            width = name_width
+                        ),
+                        base.fg(if selected {
+                            theme.theme_primary
+                        } else {
+                            theme.fg
+                        }),
+                    ),
+                    Span::styled(symbol, base.fg(latency_color(conn, theme))),
+                    Span::styled(
+                        format!(" {:>7}", format_latency(conn)),
+                        base.fg(theme.comment),
+                    ),
+                    Span::styled(
+                        format!("   {}", truncate(&conn.connection_string(), 30)),
+                        base.fg(theme.comment),
+                    ),
+                ];
+                if conn.has_active_sessions() {
+                    spans.push(Span::styled(
+                        format!(" [{}]", conn.session_count()),
+                        base.fg(theme.green).add_modifier(Modifier::BOLD),
+                    ));
+                }
+                Line::from(spans)
+            }
+        }
+    };
+
+    let mut lines: Vec<Line> = Vec::with_capacity(inner_height);
+    match pinned {
+        Some(g) => {
+            let mut line = render_row(&rows[g], false);
+            line.spans
+                .push(Span::styled("  ↑", Style::default().fg(theme.comment)));
+            lines.push(line);
+        }
+        // Keep the row budget identical whether or not a heading is pinned, so
+        // the list doesn't jitter by one line as you scroll past a boundary.
+        None => lines.push(Line::from("")),
+    }
+
+    for (i, row) in rows.iter().enumerate().skip(offset).take(visible) {
+        lines.push(render_row(row, Some(i) == selected_row));
+    }
+
+    let hidden_above = offset;
+    let hidden_below = rows.len().saturating_sub(offset + visible);
+    let title = if hidden_above > 0 || hidden_below > 0 {
+        format!(
+            " Topology — {} host(s)  [{}/{}] ",
+            connections.len(),
+            cursor + 1,
+            selectable.len()
+        )
+    } else {
+        format!(" Topology — {} host(s) ", connections.len())
+    };
+
+    let tree = Paragraph::new(lines).block(
         Block::default()
             .title(title)
             .title_style(
@@ -2776,10 +2848,153 @@ fn render_topology_view(f: &mut Frame, area: Rect, app_state: &mut AppState) {
             .border_style(Style::default().fg(theme.border))
             .style(Style::default().bg(theme.bg)),
     );
+    f.render_widget(tree, tree_area);
 
-    drop(connections);
-    app_state.topology_list_state.select(selected_row);
-    f.render_stateful_widget(list, area, &mut app_state.topology_list_state);
+    if hidden_below > 0 && tree_area.height > 2 {
+        f.render_widget(
+            Paragraph::new(format!("{} more ▼", hidden_below))
+                .style(Style::default().fg(theme.comment))
+                .alignment(Alignment::Right),
+            Rect::new(
+                tree_area.x + 1,
+                tree_area.y + tree_area.height - 1,
+                tree_area.width.saturating_sub(3),
+                1,
+            ),
+        );
+    }
+
+    if show_path {
+        let selected_server = selected_row.and_then(|r| crate::topology::server_of(&rows[r]));
+        render_topology_path(f, chunks[1], &connections, selected_server, theme);
+    }
+}
+
+/// The path panel: how you actually reach the selected host.
+///
+/// This is what the topology view knows that the flat list does not — a host
+/// can be perfectly healthy and still unreachable because something upstream
+/// of it is down.
+fn render_topology_path(
+    f: &mut Frame,
+    area: Rect,
+    connections: &[&crate::models::ServerConnection],
+    selected: Option<usize>,
+    theme: Theme,
+) {
+    let block = Block::default()
+        .title(" Path ")
+        .title_style(
+            Style::default()
+                .fg(theme.theme_primary)
+                .add_modifier(Modifier::BOLD),
+        )
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(theme.bg));
+
+    let Some(index) = selected else {
+        f.render_widget(
+            Paragraph::new("No host selected")
+                .style(Style::default().fg(theme.comment))
+                .alignment(Alignment::Center)
+                .block(block),
+            area,
+        );
+        return;
+    };
+
+    let chain = crate::topology::jump_chain(connections, index);
+    let mut lines: Vec<Line> = vec![Line::from(Span::styled(
+        "this machine",
+        Style::default().fg(theme.comment),
+    ))];
+
+    let mut blocked_by: Option<String> = None;
+    for (depth, hop) in chain.iter().enumerate() {
+        let indent = "  ".repeat(depth);
+        match hop.server.map(|i| connections[i]) {
+            Some(conn) => {
+                // Only a hop that is *known* to be down blocks the path.
+                // Unknown means "not probed yet", and flagging that as blocked
+                // fires on every host at startup, before any check has run.
+                let known_down = matches!(conn.health_status, crate::models::HealthStatus::Offline);
+                if known_down && depth + 1 < chain.len() && blocked_by.is_none() {
+                    blocked_by = Some(conn.name.clone());
+                }
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{}└→ ", indent), Style::default().fg(theme.comment)),
+                    Span::styled(
+                        truncate(&hop.label, 16),
+                        Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        conn.health_status.symbol(),
+                        Style::default().fg(latency_color(conn, theme)),
+                    ),
+                    Span::styled(
+                        format!(" {}", format_latency(conn)),
+                        Style::default().fg(theme.comment),
+                    ),
+                ]));
+            }
+            None => {
+                if blocked_by.is_none() {
+                    blocked_by = Some(hop.label.clone());
+                }
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{}└→ ", indent), Style::default().fg(theme.comment)),
+                    Span::styled(truncate(&hop.label, 14), Style::default().fg(theme.orange)),
+                ]));
+                // On its own line: appending it wrapped the hop name mid-word.
+                lines.push(Line::from(Span::styled(
+                    format!("{}   not configured", indent),
+                    Style::default().fg(theme.comment),
+                )));
+            }
+        }
+    }
+
+    let target = connections[index];
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        truncate(&target.connection_string(), 30),
+        Style::default().fg(theme.fg),
+    )));
+    lines.push(Line::from(vec![
+        Span::styled("auth  ", Style::default().fg(theme.comment)),
+        Span::styled(
+            target.auth_strength.as_str(),
+            Style::default().fg(get_auth_color(&target.auth_strength, theme)),
+        ),
+    ]));
+    if let Some(err) = &target.last_error {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            truncate(err, 30),
+            Style::default().fg(theme.red),
+        )));
+    }
+
+    // Call out the structural case: the host itself may be fine, but you cannot
+    // get to it because a hop in front of it is down or missing.
+    if let Some(hop) = blocked_by {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("⚠ blocked at {}", truncate(&hop, 16)),
+            Style::default()
+                .fg(theme.orange)
+                .add_modifier(Modifier::BOLD),
+        )));
+    }
+
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn format_latency(conn: &crate::models::ServerConnection) -> String {
@@ -2846,6 +3061,96 @@ mod tests {
             "flat low latency rendered as full bars: {:?}",
             flat
         );
+    }
+
+    fn probed(
+        status: crate::models::HealthStatus,
+        ms: Option<u64>,
+    ) -> crate::models::ServerConnection {
+        let mut c = crate::models::ServerConnection::new("t".into(), "h".into(), 22, "u".into());
+        c.health_status = status;
+        c.stats.latency = ms.map(std::time::Duration::from_millis);
+        c
+    }
+
+    #[test]
+    fn latency_shading_separates_fast_from_slow() {
+        // Cannot be demonstrated on loopback — a local TCP connect completes in
+        // ~0ms no matter what the listener does — so pin the thresholds here.
+        use crate::models::HealthStatus;
+        let theme = crate::themes::Theme::from_variant(crate::themes::ThemeVariant::TokyoNightDark);
+
+        let lan = latency_color(&probed(HealthStatus::Online, Some(3)), theme);
+        let regional = latency_color(&probed(HealthStatus::Online, Some(60)), theme);
+        let distant = latency_color(&probed(HealthStatus::Online, Some(150)), theme);
+        let awful = latency_color(&probed(HealthStatus::Online, Some(600)), theme);
+
+        assert_eq!(lan, theme.green);
+        assert_eq!(regional, theme.cyan);
+        assert_eq!(distant, theme.yellow);
+        assert_eq!(awful, theme.orange);
+        // Every band must be visually distinct or the shading says nothing.
+        let bands = [lan, regional, distant, awful];
+        for (i, a) in bands.iter().enumerate() {
+            for b in bands.iter().skip(i + 1) {
+                assert_ne!(a, b, "two latency bands share a colour");
+            }
+        }
+    }
+
+    #[test]
+    fn an_offline_host_is_not_shaded_by_stale_latency() {
+        use crate::models::HealthStatus;
+        let theme = crate::themes::Theme::from_variant(crate::themes::ThemeVariant::TokyoNightDark);
+        // A host that just went down still carries its last measurement; it
+        // must not keep rendering as a healthy green.
+        let c = probed(HealthStatus::Offline, Some(3));
+        assert_eq!(latency_color(&c, theme), theme.status_offline);
+    }
+
+    #[test]
+    fn online_without_a_measurement_falls_back_to_plain_online() {
+        use crate::models::HealthStatus;
+        let theme = crate::themes::Theme::from_variant(crate::themes::ThemeVariant::TokyoNightDark);
+        let c = probed(HealthStatus::Online, None);
+        assert_eq!(latency_color(&c, theme), theme.status_online);
+    }
+
+    #[test]
+    fn online_and_offline_glyphs_differ_without_colour() {
+        use crate::models::HealthStatus;
+        // Colour alone is not an accessible signal: these must be told apart in
+        // a screenshot, a mono terminal, or by a red-green colourblind reader.
+        assert_ne!(
+            HealthStatus::Online.symbol(),
+            HealthStatus::Offline.symbol()
+        );
+    }
+
+    #[test]
+    fn latency_is_only_reported_for_reachable_hosts() {
+        use crate::models::HealthStatus;
+        assert_eq!(
+            format_latency(&probed(HealthStatus::Online, Some(42))),
+            "42ms"
+        );
+        assert_eq!(
+            format_latency(&probed(HealthStatus::Offline, Some(42))),
+            "—"
+        );
+        assert_eq!(format_latency(&probed(HealthStatus::Online, None)), "—");
+    }
+
+    #[test]
+    fn truncate_never_exceeds_the_budget() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("exactlyten", 10), "exactlyten");
+        let cut = truncate("a-very-long-hostname-indeed", 10);
+        assert_eq!(cut.chars().count(), 10);
+        assert!(cut.ends_with('…'));
+        // Must not split a multi-byte character.
+        let uni = truncate("日本語のホスト名です", 5);
+        assert_eq!(uni.chars().count(), 5);
     }
 
     #[test]

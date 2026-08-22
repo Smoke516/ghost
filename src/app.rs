@@ -253,6 +253,7 @@ impl App {
             KeyCode::Char('S') => self.state.mode = AppMode::Sessions,
             KeyCode::Char('m') => {
                 self.state.topology_selected = 0;
+                self.state.topology_offset = 0;
                 self.state.mode = AppMode::Topology;
             }
             KeyCode::Char('t') => self.open_theme_selector(),
@@ -552,11 +553,24 @@ impl App {
     }
 
     async fn handle_loading_mode(&mut self, key: KeyCode) -> Result<()> {
-        if key == KeyCode::Esc {
-            // Cancel only stops *waiting*; in-flight probes still deliver their
-            // results through the channel and update the list.
-            self.state.complete_loading();
-            self.notify("Refresh running in background");
+        match key {
+            KeyCode::Esc => {
+                // Cancel only stops *waiting*; in-flight probes still deliver
+                // their results through the channel and update the list.
+                self.state.complete_loading();
+                self.notify("Refresh running in background");
+            }
+            // Already refreshing; stacking another sweep would just duplicate
+            // in-flight probes.
+            KeyCode::Char('r') => {}
+            other => {
+                // The refresh is fully asynchronous, so there is no reason to
+                // swallow input for its duration. Swallowing it made a refresh
+                // over unreachable hosts feel like a ten-second freeze even
+                // though the UI was drawing the whole time.
+                self.state.complete_loading();
+                Box::pin(self.handle_normal_mode(other, KeyModifiers::NONE)).await?;
+            }
         }
         Ok(())
     }

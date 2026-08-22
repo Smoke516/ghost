@@ -138,13 +138,93 @@ pub fn build(servers: &[&ServerConnection]) -> Vec<Row> {
     rows
 }
 
+/// One hop on the path from your machine to a host.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hop {
+    pub label: String,
+    /// Index into the server slice, when this hop is a configured host.
+    pub server: Option<usize>,
+}
+
+/// The full path taken to reach `index`, outermost hop first, ending with the
+/// host itself.
+///
+/// Bastions can chain (`web` jumps via `inner`, which jumps via `edge`), and a
+/// mis-written config can make them cycle, so the walk is depth-limited and
+/// tracks what it has already visited.
+pub fn jump_chain(servers: &[&ServerConnection], index: usize) -> Vec<Hop> {
+    let mut chain = vec![Hop {
+        label: servers[index].name.clone(),
+        server: Some(index),
+    }];
+    let mut seen = vec![index];
+    let mut current = index;
+
+    // OpenSSH itself caps jump depth; anything beyond a handful is pathological.
+    for _ in 0..8 {
+        let Some(jump) = servers[current]
+            .proxy_jump
+            .as_deref()
+            .filter(|j| !j.trim().is_empty())
+        else {
+            break;
+        };
+
+        match servers.iter().position(|s| identifies(s, jump)) {
+            Some(next) if !seen.contains(&next) => {
+                chain.push(Hop {
+                    label: servers[next].name.clone(),
+                    server: Some(next),
+                });
+                seen.push(next);
+                current = next;
+            }
+            // Either a bastion we have no entry for, or a cycle. Either way the
+            // walk stops; record the name so the path is still truthful.
+            Some(_) => break,
+            None => {
+                chain.push(Hop {
+                    label: jump.to_string(),
+                    server: None,
+                });
+                break;
+            }
+        }
+    }
+
+    chain.reverse();
+    chain
+}
+
+/// The group heading that governs `row`, so a scrolled view can pin it.
+pub fn group_of(rows: &[Row], row: usize) -> Option<usize> {
+    rows[..=row.min(rows.len().saturating_sub(1))]
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, r)| matches!(r, Row::Group { .. }))
+        .map(|(i, _)| i)
+}
+
 /// Row indices that can be selected, i.e. those backed by a real server.
 pub fn selectable(rows: &[Row]) -> Vec<usize> {
+    // A bastion that itself sits behind another bastion appears twice: once as
+    // a host under its parent, and once as the heading of its own group. That
+    // duplication is correct in the tree — it shows both relationships — but it
+    // should not give the same server two cursor stops.
+    let as_host: Vec<usize> = rows
+        .iter()
+        .filter_map(|r| match r {
+            Row::Host { server, .. } => Some(*server),
+            _ => None,
+        })
+        .collect();
+
     rows.iter()
         .enumerate()
         .filter(|(_, r)| match r {
             Row::Host { .. } => true,
-            Row::Group { server, .. } => server.is_some(),
+            Row::Group { server, .. } => server.is_some_and(|srv| !as_host.contains(&srv)),
             Row::Spacer => false,
         })
         .map(|(i, _)| i)
@@ -297,6 +377,95 @@ mod tests {
             })
             .expect("expected a Direct bucket");
         assert!(!direct, "Direct is a heading, not a jump host");
+    }
+
+    #[test]
+    fn jump_chain_walks_outward_from_the_host() {
+        let owned = [
+            conn("edge", "edge.corp", None),
+            conn("inner", "inner.corp", Some("edge")),
+            conn("web", "10.0.0.1", Some("inner")),
+        ];
+        let refs: Vec<&ServerConnection> = owned.iter().collect();
+        let chain = jump_chain(&refs, 2);
+        let labels: Vec<&str> = chain.iter().map(|h| h.label.as_str()).collect();
+        assert_eq!(labels, vec!["edge", "inner", "web"]);
+    }
+
+    #[test]
+    fn a_direct_host_has_a_single_hop() {
+        let owned = [conn("solo", "solo.lan", None)];
+        let refs: Vec<&ServerConnection> = owned.iter().collect();
+        assert_eq!(jump_chain(&refs, 0).len(), 1);
+    }
+
+    #[test]
+    fn jump_chain_records_an_unconfigured_bastion() {
+        let owned = [conn("web", "10.0.0.1", Some("mystery"))];
+        let refs: Vec<&ServerConnection> = owned.iter().collect();
+        let chain = jump_chain(&refs, 0);
+        assert_eq!(chain[0].label, "mystery");
+        assert_eq!(chain[0].server, None);
+        assert_eq!(chain[1].label, "web");
+    }
+
+    #[test]
+    fn a_cyclic_jump_config_terminates() {
+        // a jumps via b, b jumps via a. Without cycle tracking this never ends.
+        let owned = [
+            conn("a", "a.corp", Some("b")),
+            conn("b", "b.corp", Some("a")),
+        ];
+        let refs: Vec<&ServerConnection> = owned.iter().collect();
+        let chain = jump_chain(&refs, 0);
+        assert!(chain.len() <= 3, "cycle produced {} hops", chain.len());
+    }
+
+    #[test]
+    fn group_of_finds_the_governing_heading() {
+        let owned = vec![
+            conn("bastion", "bastion.corp", None),
+            conn("web-01", "10.0.1.11", Some("bastion")),
+            conn("web-02", "10.0.1.12", Some("bastion")),
+        ];
+        let rows = rows_of(&owned);
+        // Row 0 is the group; rows 1 and 2 are its hosts.
+        assert_eq!(group_of(&rows, 2), Some(0));
+        assert_eq!(group_of(&rows, 0), Some(0));
+    }
+
+    #[test]
+    fn a_chained_bastion_gets_one_cursor_stop_not_two() {
+        // bastion-eu is reached via edge-gw and is itself a bastion, so it
+        // shows up as both a host row and a group heading.
+        let owned = [
+            conn("edge-gw", "edge.corp", None),
+            conn("bastion-eu", "eu.corp", Some("edge-gw")),
+            conn("web", "10.0.0.1", Some("bastion-eu")),
+        ];
+        let rows = rows_of(&owned);
+        let stops: Vec<Option<usize>> = selectable(&rows)
+            .iter()
+            .map(|&r| server_of(&rows[r]))
+            .collect();
+        let eu = stops.iter().filter(|s| **s == Some(1)).count();
+        assert_eq!(eu, 1, "bastion-eu should be selectable exactly once");
+    }
+
+    #[test]
+    fn an_unprobed_bastion_is_not_a_known_failure() {
+        // Documents the rule the path panel relies on: Unknown means "not
+        // checked yet", which must not be reported as a blocked route.
+        use crate::models::HealthStatus;
+        let mut owned = [
+            conn("gw", "gw.corp", None),
+            conn("node", "10.0.0.1", Some("gw")),
+        ];
+        owned[0].health_status = HealthStatus::Unknown;
+        assert!(!matches!(owned[0].health_status, HealthStatus::Offline));
+
+        owned[0].health_status = HealthStatus::Offline;
+        assert!(matches!(owned[0].health_status, HealthStatus::Offline));
     }
 
     #[test]
