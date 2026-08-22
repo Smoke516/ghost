@@ -14,6 +14,8 @@ reachable, and open a session in one keystroke.
 - **Opens in a new terminal window** when your emulator supports it, otherwise
   hands the current terminal over to `ssh`.
 - **Search** across name, host, user, tag, and description.
+- **Topology view** — hosts grouped under their `ProxyJump` bastion, so you can
+  see at a glance which hosts go dark together when a bastion does.
 - **Twelve themes**, three panel layouts.
 
 Ghost does not replace `ssh`. It builds an `ssh` command line and runs it, so
@@ -62,6 +64,7 @@ every keybinding.
 | `i` | Import from `~/.ssh/config` |
 | `r` | Re-check reachability of every host |
 | `f` | Show only reachable hosts |
+| `m` | Topology — hosts grouped by the bastion they route through |
 | `S` `A` `H` | Sessions / analytics / history |
 | `l` / `[` `]` | Cycle layout / resize panels |
 | `T` / `t` | Next theme / theme picker |
@@ -132,9 +135,14 @@ key_path = "~/.ssh/id_ed25519"
 ## Status column
 
 ```
-● online    ● offline    ◐ checking    ? not yet checked
+● online    ○ offline    ◐ checking    ? not yet checked
 🔑 key or agent auth    ⚠ password auth    💬 keyboard-interactive
 ```
+
+Online dots are shaded by measured latency, so a 3 ms LAN box and a 300 ms
+link don't look identical. Online and offline differ in shape, not just colour,
+so the distinction survives a screenshot, a mono terminal, and red-green colour
+blindness.
 
 The auth icon reflects **your local connection config**, not the remote host's
 security posture. Ghost's reachability check is a TCP connect; it cannot and

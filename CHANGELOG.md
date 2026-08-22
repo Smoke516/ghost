@@ -5,6 +5,34 @@ All notable changes to Ghost are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Topology view** (`m`) — hosts grouped under the bastion they are reached
+  through, derived from `ProxyJump`. A flat list can't express routing: with
+  this, a bastion going down visibly takes its whole subtree with it.
+  - Sticky group heading, so scrolling a long fleet doesn't lose the "which
+    bastion am I under" context.
+  - Path panel showing the resolved hop chain for the selected host
+    (`this machine → edge-gw → bastion-eu → web-01`), flagging where a route is
+    blocked. A host can be perfectly healthy and still unreachable because
+    something in front of it is down.
+- **`ProxyJump` is parsed during ssh-config import** — including `user@host:port`
+  forms and `a,b` chains (nearest hop wins); `none` means direct. Ghost was
+  silently dropping this.
+- **Status dots are shaded by measured latency**, not just up/down. "Online"
+  covers everything from a 1 ms LAN box to a 400 ms satellite link.
+
+### Fixed
+
+- **Online and Offline used the same glyph**, separated only by green vs red —
+  invisible to red-green colour blindness (~8% of men), in a screenshot, and on
+  a monochrome terminal. Offline is now a hollow circle.
+- **The refresh popup swallowed every key but Esc.** The refresh has been fully
+  asynchronous since 0.2.0, so there was never a reason to block input; it just
+  made a sweep over unreachable hosts feel like a ten-second freeze.
+
 ## [0.2.0] - 2026-08-22
 
 ### Added
@@ -98,3 +126,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never was and cannot be from a TCP connect.
 
 [0.2.0]: https://github.com/Smoke516/ghost/compare/v0.1.1...v0.2.0
+[Unreleased]: https://github.com/Smoke516/ghost/compare/v0.2.0...HEAD
