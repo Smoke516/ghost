@@ -31,8 +31,11 @@ impl HealthStatus {
 
     pub fn symbol(&self) -> &'static str {
         match self {
+            // Filled vs hollow, not green vs red. These were the same glyph
+            // separated only by colour, which is invisible to red-green colour
+            // blindness (~8% of men), in a screenshot, or on a mono terminal.
             HealthStatus::Online => "●",
-            HealthStatus::Offline => "●",
+            HealthStatus::Offline => "○",
             HealthStatus::Connecting => "◐",
             HealthStatus::Warning => "▲",
             HealthStatus::Unknown => "?",
@@ -169,6 +172,8 @@ pub struct ServerConnection {
     pub tags: Vec<String>,
     /// ssh ConnectTimeout in seconds; `None` uses the built-in default.
     pub timeout: Option<u64>,
+    /// Bastion this host is reached through (`ProxyJump`), if any.
+    pub proxy_jump: Option<String>,
     pub created_at: DateTime<Utc>,
     pub last_modified: DateTime<Utc>,
 
@@ -297,6 +302,7 @@ impl ServerConnection {
             description: None,
             tags: Vec::new(),
             timeout: None,
+            proxy_jump: None,
             created_at: now,
             last_modified: now,
             health_status: HealthStatus::Unknown,
@@ -581,6 +587,8 @@ pub enum AppMode {
     Search,
     /// Theme picker overlay, with live preview as you move through the list.
     ThemeSelector,
+    /// Hosts grouped by the bastion they are reached through.
+    Topology,
     AddServer,
     EditServer(String),
     ConfirmDelete(String),
@@ -665,6 +673,9 @@ pub struct AppState {
     /// rows highlighted something off-screen.
     pub server_list_state: ListState,
     pub session_list_state: ListState,
+    pub topology_list_state: ListState,
+    /// Cursor into the topology view's selectable rows.
+    pub topology_selected: usize,
     /// The in-progress search string while in `AppMode::Search`.
     pub search_input: InputField,
     /// Path of the config file, shown in the metrics panel.
@@ -961,6 +972,8 @@ impl Default for AppState {
             server_form: None,
             server_list_state: ListState::default(),
             session_list_state: ListState::default(),
+            topology_list_state: ListState::default(),
+            topology_selected: 0,
             search_input: InputField::new("Search", "name, host, user, tag…"),
             config_path: String::new(),
             help_scroll: 0,

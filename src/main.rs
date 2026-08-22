@@ -6,6 +6,7 @@ mod models;
 mod ssh;
 mod ssh_config;
 mod themes;
+mod topology;
 mod tui;
 mod ui;
 

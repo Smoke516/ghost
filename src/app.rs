@@ -143,6 +143,7 @@ impl App {
             AppMode::Normal => self.handle_normal_mode(key, modifiers).await?,
             AppMode::Search => self.handle_search_mode(key).await?,
             AppMode::ThemeSelector => self.handle_theme_selector_mode(key)?,
+            AppMode::Topology => self.handle_topology_mode(key).await?,
             AppMode::AddServer | AppMode::EditServer(_) => self.handle_form_input(key).await?,
             AppMode::ConfirmDelete(_) => self.handle_confirm_delete_mode(key).await?,
             AppMode::ConfirmDiscard => self.handle_confirm_discard_mode(key).await?,
@@ -250,6 +251,10 @@ impl App {
             KeyCode::Char('H') => self.state.mode = AppMode::History,
             KeyCode::Char('A') => self.state.mode = AppMode::Analytics,
             KeyCode::Char('S') => self.state.mode = AppMode::Sessions,
+            KeyCode::Char('m') => {
+                self.state.topology_selected = 0;
+                self.state.mode = AppMode::Topology;
+            }
             KeyCode::Char('t') => self.open_theme_selector(),
             KeyCode::Char('T') => {
                 self.state.theme_manager.next_theme();
@@ -398,6 +403,50 @@ impl App {
         if let Some(&variant) = variants.get(self.state.theme_selector_index) {
             self.state.theme_manager.set_theme(variant);
         }
+    }
+
+    /// Navigate the topology view. Only rows backed by a real server are
+    /// selectable, so a bastion Ghost has no entry for is skipped over.
+    async fn handle_topology_mode(&mut self, key: KeyCode) -> Result<()> {
+        let count = {
+            let connections = self.state.server_manager.filtered_connections();
+            let rows = crate::topology::build(&connections);
+            crate::topology::selectable(&rows).len()
+        };
+
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('m') => {
+                self.state.mode = AppMode::Normal
+            }
+            KeyCode::Char('j') | KeyCode::Down if count > 0 => {
+                self.state.topology_selected = (self.state.topology_selected + 1) % count;
+            }
+            KeyCode::Char('k') | KeyCode::Up if count > 0 => {
+                self.state.topology_selected = if self.state.topology_selected == 0 {
+                    count - 1
+                } else {
+                    self.state.topology_selected - 1
+                };
+            }
+            KeyCode::Char('r') => self.refresh_connections().await,
+            KeyCode::Enter => {
+                let id = {
+                    let connections = self.state.server_manager.filtered_connections();
+                    let rows = crate::topology::build(&connections);
+                    let selectable = crate::topology::selectable(&rows);
+                    selectable
+                        .get(self.state.topology_selected)
+                        .and_then(|&r| crate::topology::server_of(&rows[r]))
+                        .map(|i| connections[i].id.clone())
+                };
+                if let Some(id) = id {
+                    self.connect_to_server(id).await;
+                    self.state.mode = AppMode::Topology;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn apply_search(&mut self) {

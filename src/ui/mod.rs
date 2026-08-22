@@ -32,6 +32,7 @@ pub fn ui(f: &mut Frame, app_state: &mut AppState) {
         AppMode::History => render_history_popup(f, size, app_state),
         AppMode::Analytics => render_analytics_dashboard(f, main_chunks[1], app_state),
         AppMode::Sessions => render_sessions_view(f, main_chunks[1], app_state),
+        AppMode::Topology => render_topology_view(f, main_chunks[1], app_state),
         AppMode::ConfirmDelete(id) => render_confirm_delete_popup(f, size, app_state, &id),
         AppMode::Connecting(id) => render_connecting_popup(f, size, app_state, &id),
         AppMode::Loading(context) => {
@@ -776,6 +777,7 @@ fn render_footer(f: &mut Frame, area: Rect, app_state: &AppState) {
         }
         AppMode::Loading(_) => "Esc: Continue in background",
         AppMode::ThemeSelector => "j/k: Preview · Enter: Keep · Esc: Cancel",
+        AppMode::Topology => "j/k: Move · Enter: Connect · m/q/Esc: Return",
         AppMode::Search => "",
     };
 
@@ -2609,6 +2611,194 @@ fn render_theme_selector(f: &mut Frame, area: Rect, app_state: &AppState) {
             .alignment(Alignment::Center),
         chunks[1],
     );
+}
+
+/// Shade a status dot by actual round-trip time rather than just up/down.
+///
+/// "Online" covers everything from a 1 ms LAN box to a 400 ms satellite link;
+/// colouring by latency makes that visible at a glance without reading numbers.
+fn latency_color(conn: &crate::models::ServerConnection, theme: Theme) -> Color {
+    use crate::models::HealthStatus;
+    match conn.health_status {
+        HealthStatus::Online => match conn.stats.latency.map(|d| d.as_millis()) {
+            Some(ms) if ms < 25 => theme.green,
+            Some(ms) if ms < 80 => theme.cyan,
+            Some(ms) if ms < 200 => theme.yellow,
+            Some(_) => theme.orange,
+            None => theme.status_online,
+        },
+        _ => get_health_color(&conn.health_status, theme),
+    }
+}
+
+/// Topology view: hosts grouped under the bastion they are reached through.
+fn render_topology_view(f: &mut Frame, area: Rect, app_state: &mut AppState) {
+    let theme = *app_state.theme_manager.current_theme();
+    let globe = app_state.get_globe_char();
+    let connections = app_state.server_manager.filtered_connections();
+    let rows = crate::topology::build(&connections);
+    let selectable = crate::topology::selectable(&rows);
+
+    if rows.is_empty() {
+        let hint = Paragraph::new("No servers to map. Press 'i' to import your ~/.ssh/config.")
+            .style(Style::default().fg(theme.comment))
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .title(" Topology ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .style(Style::default().bg(theme.bg)),
+            );
+        f.render_widget(hint, area);
+        return;
+    }
+
+    let cursor = app_state
+        .topology_selected
+        .min(selectable.len().saturating_sub(1));
+    let selected_row = selectable.get(cursor).copied();
+
+    // Width of the name column, so the status columns line up.
+    let name_width = 26usize;
+
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|row| {
+            let selected = Some(row) == selected_row.map(|i| &rows[i]);
+            let base = if selected {
+                Style::default()
+                    .bg(theme.bg_highlight)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            match row {
+                crate::topology::Row::Spacer => ListItem::new(Line::from("")),
+
+                crate::topology::Row::Group {
+                    label,
+                    server,
+                    children,
+                    is_bastion,
+                } => {
+                    let mut spans = vec![Span::styled(
+                        format!("{:<width$}", label, width = name_width),
+                        base.fg(theme.theme_primary).add_modifier(Modifier::BOLD),
+                    )];
+                    match server.map(|i| connections[i]) {
+                        Some(conn) => {
+                            spans.push(Span::styled(
+                                conn.health_status.symbol(),
+                                base.fg(latency_color(conn, theme)),
+                            ));
+                            spans.push(Span::styled(
+                                format!(" {:>7}", format_latency(conn)),
+                                base.fg(theme.comment),
+                            ));
+                        }
+                        // A bastion Ghost has no entry for: it routes traffic
+                        // but cannot be probed or connected to. The synthetic
+                        // "Direct" heading is neither, so it says nothing.
+                        None if *is_bastion => {
+                            spans.push(Span::styled("· not configured", base.fg(theme.comment)))
+                        }
+                        None => {}
+                    }
+                    spans.push(Span::styled(
+                        if *is_bastion {
+                            format!("   {} behind", children)
+                        } else {
+                            format!("   {} host(s)", children)
+                        },
+                        base.fg(theme.comment),
+                    ));
+                    ListItem::new(Line::from(spans))
+                }
+
+                crate::topology::Row::Host { server, last } => {
+                    let conn = connections[*server];
+                    let elbow = if *last { "└── " } else { "├── " };
+                    let symbol =
+                        if matches!(conn.health_status, crate::models::HealthStatus::Connecting) {
+                            globe
+                        } else {
+                            conn.health_status.symbol()
+                        };
+
+                    let label = format!("{}{}", elbow, conn.name);
+                    let mut spans = vec![
+                        Span::styled(
+                            format!(
+                                "{:<width$}",
+                                truncate(&label, name_width),
+                                width = name_width
+                            ),
+                            base.fg(if selected {
+                                theme.theme_primary
+                            } else {
+                                theme.fg
+                            }),
+                        ),
+                        Span::styled(symbol, base.fg(latency_color(conn, theme))),
+                        Span::styled(
+                            format!(" {:>7}", format_latency(conn)),
+                            base.fg(theme.comment),
+                        ),
+                        Span::styled(
+                            format!("   {}", conn.connection_string()),
+                            base.fg(theme.comment),
+                        ),
+                    ];
+                    if conn.has_active_sessions() {
+                        spans.push(Span::styled(
+                            format!(" [{}]", conn.session_count()),
+                            base.fg(theme.green).add_modifier(Modifier::BOLD),
+                        ));
+                    }
+                    ListItem::new(Line::from(spans))
+                }
+            }
+        })
+        .collect();
+
+    let title = format!(" Topology — {} host(s) ", connections.len());
+    let list = List::new(items).block(
+        Block::default()
+            .title(title)
+            .title_style(
+                Style::default()
+                    .fg(theme.theme_primary)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border))
+            .style(Style::default().bg(theme.bg)),
+    );
+
+    drop(connections);
+    app_state.topology_list_state.select(selected_row);
+    f.render_stateful_widget(list, area, &mut app_state.topology_list_state);
+}
+
+fn format_latency(conn: &crate::models::ServerConnection) -> String {
+    match conn.stats.latency {
+        Some(d) if matches!(conn.health_status, crate::models::HealthStatus::Online) => {
+            format!("{}ms", d.as_millis())
+        }
+        _ => "—".to_string(),
+    }
+}
+
+/// Truncate to a display width, leaving room for an ellipsis.
+fn truncate(s: &str, width: usize) -> String {
+    if s.chars().count() <= width {
+        s.to_string()
+    } else {
+        let keep = width.saturating_sub(1);
+        s.chars().take(keep).collect::<String>() + "…"
+    }
 }
 
 #[cfg(test)]

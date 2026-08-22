@@ -5,5 +5,6 @@ pub mod models;
 pub mod ssh;
 pub mod ssh_config;
 pub mod themes;
+pub mod topology;
 pub mod tui;
 pub mod ui;

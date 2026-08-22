@@ -67,6 +67,9 @@ pub struct ServerConfig {
     /// Custom ssh ConnectTimeout in seconds.
     #[serde(default)]
     pub timeout: Option<u64>,
+    /// Bastion reached through (`ProxyJump`).
+    #[serde(default)]
+    pub proxy_jump: Option<String>,
     /// When this entry was first created. Persisted so the details panel shows
     /// a real age instead of resetting to "today" on every launch.
     #[serde(default)]
@@ -115,6 +118,7 @@ impl From<ServerConfig> for ServerConnection {
         connection.description = config.description;
         connection.tags = config.tags;
         connection.timeout = config.timeout;
+        connection.proxy_jump = config.proxy_jump;
         if let Some(created) = config.created_at {
             connection.created_at = created;
         }
@@ -138,6 +142,7 @@ impl From<ServerConnection> for ServerConfig {
             // Previously hardcoded to None, which wiped any user-set timeout on
             // the next save.
             timeout: conn.timeout,
+            proxy_jump: conn.proxy_jump,
             created_at: Some(conn.created_at),
             last_modified: Some(conn.last_modified),
         }
@@ -274,6 +279,7 @@ mod tests {
             description: Some("a server".to_string()),
             tags: vec!["prod".to_string()],
             timeout: Some(15),
+            proxy_jump: None,
             created_at: Some(Utc::now()),
             last_modified: Some(Utc::now()),
         }

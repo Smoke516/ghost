@@ -20,6 +20,10 @@ pub struct SshHost {
     pub user: Option<String>,
     pub port: u16,
     pub identity_file: Option<String>,
+    /// `ProxyJump` target, i.e. the bastion this host is reached through.
+    /// May itself be an alias of another configured host, which is what makes
+    /// a topology out of a flat list.
+    pub proxy_jump: Option<String>,
 }
 
 impl SshHost {
@@ -30,6 +34,7 @@ impl SshHost {
             user: None,
             port: 22,
             identity_file: None,
+            proxy_jump: None,
         }
     }
 
@@ -55,6 +60,7 @@ impl SshHost {
         };
         conn.description = Some(format!("Imported from ssh config ({})", self.alias));
         conn.tags = vec!["ssh-config".to_string()];
+        conn.proxy_jump = self.proxy_jump.clone();
         conn
     }
 }
@@ -87,6 +93,21 @@ fn split_directive(line: &str) -> Option<(String, String)> {
         return None;
     }
     Some((key.to_ascii_lowercase(), unquote(value).to_string()))
+}
+
+/// A ProxyJump entry may be written `user@host:port`; the host is the part
+/// that identifies the bastion, so reduce it to that.
+fn strip_user_and_port(spec: &str) -> String {
+    let without_user = spec.rsplit('@').next().unwrap_or(spec);
+    // Leave IPv6 literals in brackets alone.
+    if without_user.starts_with('[') {
+        return without_user.to_string();
+    }
+    without_user
+        .split(':')
+        .next()
+        .unwrap_or(without_user)
+        .to_string()
 }
 
 /// Values may be quoted, e.g. `IdentityFile "~/.ssh/my key"`.
@@ -156,6 +177,22 @@ pub fn parse(contents: &str) -> Vec<SshHost> {
                     for h in current.iter_mut() {
                         h.port = port;
                     }
+                }
+            }
+            "proxyjump" => {
+                // `none` explicitly disables jumping; treat it as direct.
+                let jump = if value.eq_ignore_ascii_case("none") {
+                    None
+                } else {
+                    // A chain like `a,b,c` means hop a then b then c. We model
+                    // the immediate parent, which is the last element.
+                    value
+                        .split(',')
+                        .next_back()
+                        .map(|s| strip_user_and_port(s.trim()))
+                };
+                for h in current.iter_mut() {
+                    h.proxy_jump = jump.clone();
                 }
             }
             "identityfile" => {
@@ -471,6 +508,31 @@ Host incomplete
         let hosts = parse_file(&main).unwrap();
         assert_eq!(hosts.len(), 1);
         assert_eq!(hosts[0].alias, "ok");
+    }
+
+    #[test]
+    fn proxy_jump_is_captured() {
+        let hosts = parse("Host w\n  HostName w.example.com\n  User me\n  ProxyJump bastion\n");
+        assert_eq!(hosts[0].proxy_jump.as_deref(), Some("bastion"));
+    }
+
+    #[test]
+    fn proxy_jump_chain_uses_the_nearest_hop() {
+        // `a,b` means go via a, then b; b is the host we actually come from.
+        let hosts = parse("Host w\n  HostName w\n  User me\n  ProxyJump edge,inner\n");
+        assert_eq!(hosts[0].proxy_jump.as_deref(), Some("inner"));
+    }
+
+    #[test]
+    fn proxy_jump_strips_user_and_port() {
+        let hosts = parse("Host w\n  HostName w\n  User me\n  ProxyJump jump@bastion.corp:2222\n");
+        assert_eq!(hosts[0].proxy_jump.as_deref(), Some("bastion.corp"));
+    }
+
+    #[test]
+    fn proxy_jump_none_means_direct() {
+        let hosts = parse("Host w\n  HostName w\n  User me\n  ProxyJump none\n");
+        assert_eq!(hosts[0].proxy_jump, None);
     }
 
     #[test]
