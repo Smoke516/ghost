@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `refresh_interval` and `panel_layout` from the config are now honoured. The
   `animation_speed` and `smooth_animations` keys were never read and have been
   removed (unknown keys are ignored, so old configs still load).
-- Upgraded to ratatui 0.29 / crossterm 0.28. MSRV is now 1.85 (set by clap 4.6, which uses edition 2024).
+- Upgraded to ratatui 0.29 / crossterm 0.28. MSRV is now 1.88, the highest floor in the locked dependency graph.
 - Dropped `russh`, `russh-keys`, `serde_json`, `async-trait`, and `config` —
   none were referenced anywhere. `tokio`'s `full` feature was narrowed to the
   five features actually used.

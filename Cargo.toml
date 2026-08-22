@@ -12,7 +12,7 @@ documentation = "https://docs.rs/ghost-ssh"
 keywords = ["ssh", "terminal", "tui", "connection-manager", "security"]
 categories = ["command-line-utilities", "network-programming"]
 exclude = ["screenshots/", "docs/", ".github/", "target/", "*.log"]
-rust-version = "1.85"  # clap 4.6 uses edition 2024
+rust-version = "1.88"  # highest floor in the locked graph (instability, home, darling)
 
 [[bin]]
 name = "ghost"
