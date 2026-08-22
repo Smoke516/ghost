@@ -1,6 +1,6 @@
 [package]
 name = "ghost-ssh"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "A terminal SSH connection manager: keep your hosts in one list, see which are reachable, and connect in one keystroke"
 license = "MIT"
