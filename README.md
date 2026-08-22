@@ -29,16 +29,11 @@ cd ghost
 cargo install --path .
 ```
 
-### From crates.io
-
-```bash
-cargo install ghost-ssh   # the binary is named `ghost`
-```
-
 ### Prebuilt binaries
 
 Grab one from [Releases](https://github.com/Smoke516/ghost/releases). Builds are
-published for Linux (x64, arm64), macOS (Intel, Apple Silicon), and Windows x64.
+published for Linux (x64, arm64), macOS (Intel, Apple Silicon), and Windows x64,
+each with a `.sha256` alongside it.
 
 ## Getting started
 
