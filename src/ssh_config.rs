@@ -77,13 +77,11 @@ fn split_directive(line: &str) -> Option<(String, String)> {
     if line.is_empty() || line.starts_with('#') {
         return None;
     }
-    let (key, value) = match line.find(['=', ' ', '\t']) {
-        Some(idx) => (
-            &line[..idx],
-            line[idx + 1..].trim_start_matches(['=', ' ', '\t']),
-        ),
-        None => return None,
-    };
+    let idx = line.find(['=', ' ', '\t'])?;
+    let (key, value) = (
+        &line[..idx],
+        line[idx + 1..].trim_start_matches(['=', ' ', '\t']),
+    );
     let value = value.trim();
     if value.is_empty() {
         return None;
