@@ -5,7 +5,7 @@ All notable changes to Ghost are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-22
 
 ### Added
 
@@ -96,3 +96,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The auth indicator is now documented as reflecting **local configuration
   only**. It was presented as a security assessment of the remote host, which it
   never was and cannot be from a TCP connect.
+
+[0.2.0]: https://github.com/Smoke516/ghost/compare/v0.1.1...v0.2.0
