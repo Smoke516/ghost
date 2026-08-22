@@ -61,8 +61,44 @@ jobs:
         run: |
           Compress-Archive -Path "target/${{ matrix.target }}/release/ghost.exe" -DestinationPath "${{ matrix.asset }}"
 
-      - name: Upload to release
+      - name: Checksum
+        shell: bash
+        run: |
+          if command -v sha256sum >/dev/null; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+
+      - name: Stash artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
+          if-no-files-found: error
+
+  # Publishing is a single job on purpose. Having each build job call
+  # action-gh-release races: five jobs try to create the same release at once,
+  # and whichever loses can drop its asset or fail outright.
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List what will be published
+        run: ls -l dist
+
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.asset }}
+          files: dist/*
           generate_release_notes: true
+          fail_on_unmatched_files: true
