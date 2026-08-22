@@ -2,14 +2,13 @@
 name = "ghost-ssh"
 version = "0.2.0"
 edition = "2021"
-authors = ["Seawn <seawn@nyfire.biz>"]
-description = "A modern, cross-platform SSH connection manager with beautiful terminal UI and security assessment"
+description = "A terminal SSH connection manager: keep your hosts in one list, see which are reachable, and connect in one keystroke"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/Smoke516/ghost"
 homepage = "https://github.com/Smoke516/ghost"
 documentation = "https://docs.rs/ghost-ssh"
-keywords = ["ssh", "terminal", "tui", "connection-manager", "security"]
+keywords = ["ssh", "terminal", "tui", "connection-manager", "sysadmin"]
 categories = ["command-line-utilities", "network-programming"]
 exclude = ["screenshots/", "docs/", ".github/", "target/", "*.log"]
 rust-version = "1.88"  # highest floor in the locked graph (instability, home, darling)
